@@ -1,4 +1,5 @@
 import { NextApiRequest, NextApiResponse } from 'next';
+import { OpenAI } from 'openai';
 
 type PlayerDescription = { 
   playerId: string; 
@@ -39,63 +40,50 @@ export default async function handler(
       return res.status(400).json({ error: 'Game settings are required' });
     }
 
-    // In a real implementation, this would call an AI service (OpenAI, etc.)
-    // For now, we'll create a simple script based on the descriptions
-    
-    const script = generateMockScript(descriptions, players, settings);
+    const openai = new OpenAI({
+      apiKey: process.env.OPENAI_API_KEY,
+    });
+
+    // Map descriptions with character names
+    const getPlayerName = (id: string) => {
+      const player = players.find(p => p.id === id);
+      return player ? player.name : 'Unknown Player';
+    };
+
+    // Create character list for the prompt
+    const charactersList = descriptions.map(desc => {
+      const character = getPlayerName(desc.assignedPlayerId);
+      return `• ${character} – ${desc.description}`;
+    }).join('\n');
+
+    const systemMessage = `You are an award‑winning screenwriter. Write tight, highly readable screenplays that work as live table‑reads for 4–10 friends. Can be Rated R. Use every character provided in depth. Make sure to use their descriptions as much as you can.`;
+
+    const userMessage = `# PlotTwist Scene Request
+Setting: ${settings.scene} (slugline: INT/EXT as fits)
+Tone: ${settings.tone}
+Target length: ${settings.length}
+--- Characters ---
+${charactersList}
+--- Rules ---
+1. Every character must speak at least twice.
+2. Use screenplay format (CHARACTER, parentheticals, etc.).
+3. Finish on a cliff hanger.`;
+
+    const response = await openai.chat.completions.create({
+      model: "gpt-4o-mini",
+      temperature: 0.9,
+      max_tokens: 900,
+      messages: [
+        { role: "system", content: systemMessage },
+        { role: "user", content: userMessage }
+      ]
+    });
+
+    const script = response.choices[0].message.content || '';
     
     return res.status(200).json({ script });
   } catch (error) {
     console.error('Error generating script:', error);
     return res.status(500).json({ error: 'Failed to generate script' });
   }
-}
-
-function generateMockScript(
-  descriptions: PlayerDescription[],
-  players: { id: string; name: string }[],
-  settings: GameSettings
-): string {
-  // Get player names by their IDs
-  const getPlayerName = (id: string) => {
-    const player = players.find(p => p.id === id);
-    return player ? player.name : 'Unknown Player';
-  };
-
-  // Map descriptions with character names
-  const characters = descriptions.map(desc => {
-    const describer = getPlayerName(desc.playerId);
-    const character = getPlayerName(desc.assignedPlayerId);
-    
-    return {
-      character,
-      description: desc.description,
-      describer
-    };
-  });
-
-  // Create an intro based on the settings
-  let script = `Setting: A ${settings.scene}\nTone: ${settings.tone}\n\n`;
-  script += `NARRATOR: It was a ${settings.tone === 'Dramatic' ? 'stormy' : settings.tone === 'Funny' ? 'ridiculous' : 'typical'} day at the ${settings.scene}...\n\n`;
-
-  // Add character introductions
-  characters.forEach(({ character, description }) => {
-    script += `[Enter ${character}]\n\n`;
-    script += `NARRATOR: ${character} walks in. ${description.substring(0, 100)}...\n\n`;
-  });
-
-  // Create some dialogue between characters
-  for (let i = 0; i < characters.length; i++) {
-    const current = characters[i];
-    const next = characters[(i + 1) % characters.length];
-    
-    script += `${current.character}: Hey ${next.character}, how's it going?\n\n`;
-    script += `${next.character}: Oh, you know, just ${settings.tone === 'Dramatic' ? 'dealing with my inner demons' : settings.tone === 'Funny' ? 'trying not to spill my coffee again' : 'hanging out'}.\n\n`;
-  }
-
-  // Create a conclusion
-  script += `NARRATOR: And so, our characters continued their adventure at the ${settings.scene}, each with their own story to tell...\n\n`;
-  script += `[THE END]`;
-
-  return script;
 } 
