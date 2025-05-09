@@ -2,6 +2,7 @@ import { useRouter } from "next/router";
 import { useEffect, useState, useRef } from "react";
 import { supa } from "../../lib/supa";
 import Link from "next/link";
+import React from "react";
 
 type Player = { id: string; name: string; joinedAt: number; status: 'ready' | 'writing' | 'guessing' };
 type GameSettings = {
@@ -555,81 +556,64 @@ export default function Room() {
       })
       .on('broadcast', { event: 'game_phase_change' }, ({ payload }) => {
         console.log('DEBUG - CRITICAL - Game phase change START:', { 
-          payload, 
-          currentHost: hostId, 
-          isHost: playerId === hostId,
-          preservingHostFlag: preservingHostRef.current,
           currentPhase: gamePhase,
           newPhase: payload.phase,
-          playerCount: players.length,
-          expectedPlayerCount: payload.playerCount || 'unknown',
-          hasAssignments: payload.assignments ? 'yes' : 'no'
+          hostId,
+          isHost: playerId === hostId
         });
         
-        // Immediately store assignments when they arrive with the phase change
+        // Save any assignments that came with the phase change
         if (payload.phase === 'description' && payload.assignments) {
+          // Save assignments
           setPlayerAssignments(payload.assignments);
           
-          // Find my assignment right away
-          const myAssignment = payload.assignments.find((a: PlayerAssignment) => a.playerId === playerId);
-          console.log('DEBUG - CRITICAL - My assignment data:', myAssignment);
-          
+          // Find my assigned player directly from players array
+          const myAssignment = payload.assignments.find(a => a.playerId === playerId);
           if (myAssignment) {
-            // Find my assigned player directly from players array
-            const assignedPlayerObj = players.find(p => p.id === myAssignment.assignedPlayerId);
-            console.log('DEBUG - CRITICAL - Found assigned player:', 
-              assignedPlayerObj ? { id: assignedPlayerObj.id, name: assignedPlayerObj.name } : 'not found');
+            console.log('DEBUG - CRITICAL - My assignment data:', {
+              myId: playerId,
+              assignedPlayerId: myAssignment.assignedPlayerId 
+            });
             
-            if (assignedPlayerObj) {
-              setAssignedPlayer(assignedPlayerObj);
+            const foundPlayer = players.find(p => p.id === myAssignment.assignedPlayerId);
+            if (foundPlayer) {
+              console.log('DEBUG - CRITICAL - Found assigned player:', foundPlayer.name);
+              setAssignedPlayer(foundPlayer);
             } else {
               console.log('DEBUG - CRITICAL - Could not find assigned player with ID:', myAssignment.assignedPlayerId);
-              
-              // Implement a more robust retry mechanism for finding assigned players
-              // Try multiple times with increasing delays
-              const retryAssignmentLookup = (retryCount = 0, maxRetries = 5) => {
-                if (retryCount >= maxRetries) {
-                  console.log('DEBUG - CRITICAL - Max retries reached, assignment recovery failed');
-                  return;
-                }
-                
-                setTimeout(() => {
-                  const retryAssignedPlayer = players.find(p => p.id === myAssignment.assignedPlayerId);
-                  if (retryAssignedPlayer) {
-                    console.log('DEBUG - CRITICAL - Found assigned player on retry:', { 
-                      id: retryAssignedPlayer.id, 
-                      name: retryAssignedPlayer.name,
-                      retryCount
-                    });
-                    setAssignedPlayer(retryAssignedPlayer);
-                  } else {
-                    // If still not found, try again with exponential backoff
-                    console.log('DEBUG - CRITICAL - Retry attempt failed, trying again:', retryCount + 1);
-                    retryAssignmentLookup(retryCount + 1, maxRetries);
-                  }
-                }, 500 * Math.pow(2, retryCount)); // Exponential backoff: 500ms, 1s, 2s, 4s, 8s
-              };
-              
-              // Start the retry process
-              retryAssignmentLookup();
             }
-          } else {
-            console.log('DEBUG - CRITICAL - No assignment found for my ID:', playerId);
+          }
+        }
+        
+        // CRITICAL: Save the script when transitioning to reading phase
+        if (payload.phase === 'reading' && payload.script) {
+          console.log('DEBUG - CRITICAL - Received script in phase change payload');
+          setGeneratedScript(payload.script);
+        } else if (payload.phase === 'reading') {
+          console.log('DEBUG - CRITICAL - Phase changed to reading but no script in payload');
+          
+          // Immediate request for script if missing
+          if (!generatedScript && channelRef.current) {
+            console.log('DEBUG - CRITICAL - Missing script after phase change to reading, requesting immediately');
             
-            // If we didn't get an assignment but others did, request it directly from the host
-            if (isConnected && channelRef.current && payload.assignments.length > 0) {
-              setTimeout(() => {
-                console.log('DEBUG - CRITICAL - Requesting assignment recovery from host');
-                channelRef.current?.send({
+            // Small delay to ensure host has time to broadcast
+            setTimeout(() => {
+              try {
+                channelRef.current.send({
                   type: 'broadcast',
-                  event: 'request_assignment_recovery',
+                  event: 'request_script',
                   payload: { 
                     requestingPlayerId: playerId,
-                    currentAssignments: payload.assignments.length
+                    requestingPlayerName: username,
+                    urgent: true,
+                    timestamp: Date.now()
                   }
                 });
-              }, 1000);
-            }
+                console.log('DEBUG - CRITICAL - Sent urgent script request after phase change');
+              } catch (err) {
+                console.error('DEBUG - CRITICAL - Error requesting script after phase change:', err);
+              }
+            }, 1000);
           }
         }
         
@@ -943,33 +927,29 @@ export default function Room() {
         }
       })
       .on('broadcast', { event: 'force_remove_player' }, ({ payload }) => {
-        console.log('DEBUG - CRITICAL - Force remove player received:', payload);
+        console.log('DEBUG - CRITICAL - Received force remove player event:', payload);
         
-        // If this is me being kicked
+        // Check if current player is being kicked
         if (payload.playerId === playerId) {
+          // Handle self removal - disconnect and redirect
           console.log('DEBUG - CRITICAL - I was kicked from the game');
           
-          // Clear session storage and username
-          sessionStorage.removeItem(`username_${slug}`);
-          setUsername('');
+          // Clear session storage for this room
+          try {
+            sessionStorage.removeItem(`username_${slug}`);
+            sessionStorage.removeItem(`host_${slug}`);
+            sessionStorage.removeItem(`originalHost_${slug}`);
+          } catch (e) {
+            console.error('Error clearing session storage after kick', e);
+          }
           
-          // Show alert to let user know they were kicked
-          setTimeout(() => {
-            alert('You have been removed from the game by the host.');
-          }, 500);
-          
+          // Redirect to home
+          window.location.href = '/';
           return;
         }
         
-        // For everyone, remove this player from their list
-        setPlayers(prev => {
-          const updatedPlayers = prev.filter(p => p.id !== payload.playerId);
-          console.log('DEBUG - CRITICAL - Removed kicked player from list:', {
-            kickedId: payload.playerId,
-            remainingPlayers: updatedPlayers.length
-          });
-          return updatedPlayers;
-        });
+        // Update players list
+        setPlayers(prev => prev.filter(p => p.id !== payload.playerId));
       })
       .on('broadcast', { event: 'request_assignment_recovery' }, ({ payload }) => {
         console.log('DEBUG - CRITICAL - Assignment recovery request received:', payload);
@@ -1034,6 +1014,25 @@ export default function Room() {
         // If this contains all assignments, update our local copy
         if (payload.allAssignments && payload.allAssignments.length > 0) {
           setPlayerAssignments(payload.allAssignments);
+        }
+      })
+      .on('broadcast', { event: 'script_response' }, ({ payload }) => {
+        // Only process if this response is for me or broadcast to all
+        if (!payload.forPlayerId || payload.forPlayerId === playerId) {
+          if (payload.script && !generatedScript) {
+            console.log('DEBUG - CRITICAL - Received script from direct response');
+            setGeneratedScript(payload.script);
+          }
+        }
+      })
+      // Add dedicated listener for script update (separate from phase change)
+      .on('broadcast', { event: 'script_update' }, ({ payload }) => {
+        console.log('DEBUG - CRITICAL - Received direct script update broadcast');
+        
+        if (payload.script) {
+          // Update the script for all players regardless of host status
+          console.log('DEBUG - CRITICAL - Setting script from direct script update broadcast');
+          setGeneratedScript(payload.script);
         }
       })
       .subscribe(async (status) => {
@@ -1454,41 +1453,14 @@ export default function Room() {
       submittedPlayerIds: submittedPlayerIds.length
     });
     
-    // VALIDATION: Check if all players have actually submitted descriptions
-    const allPlayersHaveSubmitted = players.every(player => 
-      player.id === playerId || // Skip host
-      submittedPlayerIds.includes(player.id)
-    );
-    
-    // Additional validation that we have a description for every player
-    const hasAllDescriptions = descriptions.length === players.length;
-    
-    if (!allPlayersHaveSubmitted || !hasAllDescriptions) {
-      console.log('DEBUG - CRITICAL - Invalid script generation - missing submissions:', {
-        allPlayersHaveSubmitted,
-        hasAllDescriptions,
-        players: players.length,
-        descriptions: descriptions.length,
-        submittedIds: submittedPlayerIds
-      });
-      
-      alert('Not all players have submitted descriptions yet. Please wait.');
-      return;
-    }
-    
+    // Set generation state to show loading UI
     setIsGeneratingScript(true);
     
     try {
-      console.log('DEBUG - Generating script with descriptions:', descriptions);
-      
-      // Set preservation flag before making changes
-      preservingHostRef.current = true;
-      console.log('DEBUG - Set preservationFlag before script generation');
-      
       // Get simplified player info for the API
       const playerInfo = players.map(p => ({ id: p.id, name: p.name }));
       
-      // Call the API endpoint
+      // Call the API endpoint with the correct payload structure
       const response = await fetch('/api/generate-script', {
         method: 'POST',
         headers: {
@@ -1502,65 +1474,61 @@ export default function Room() {
       });
       
       if (!response.ok) {
-        throw new Error('Failed to generate script');
+        throw new Error(`Error: ${response.status}`);
       }
       
       const data = await response.json();
+      console.log('DEBUG - CRITICAL - Generated script:', data);
+      
+      // Set the script locally
       setGeneratedScript(data.script);
       
-      console.log('DEBUG - Script generated, preparing to update phase', {
-        isHost,
-        hostId,
-        playerId,
-        currentPhase: gamePhase
-      });
-      
-      // Send a preliminary host update to ensure everyone knows the correct host
+      // 1. First broadcast the script to all players separately from phase change
       if (channelRef.current) {
         try {
-          await channelRef.current.send({
+          console.log('DEBUG - CRITICAL - Broadcasting script to all players');
+          channelRef.current.send({
             type: 'broadcast',
-            event: 'host_update',
-            payload: { 
-              hostId,
-              originalHostId,
-              forcedUpdate: true,
-              fromFunction: 'handleGenerateScript'
-            }
-          });
-          
-          console.log('DEBUG - Sent forced host update before phase change');
-          
-          // Update game phase to reading
-          await channelRef.current.send({
-            type: 'broadcast',
-            event: 'game_phase_change',
-            payload: { 
-              phase: 'reading',
+            event: 'script_update',
+            payload: {
               script: data.script,
-              preserveHost: true,
-              preservedHostId: hostId
+              fromHost: playerId,
+              timestamp: Date.now()
             }
           });
-          
-          console.log('DEBUG - Sent phase change to reading with preserved host');
-        } catch (error) {
-          console.error('ERROR - Failed to update phase:', error);
+        } catch (broadcastErr) {
+          console.error('DEBUG - CRITICAL - Error broadcasting script:', broadcastErr);
         }
       }
       
-      setGamePhase('reading');
+      // Short delay to ensure script broadcast is received before phase change
+      setTimeout(() => {
+        // 2. Then update phase to reading
+        if (channelRef.current) {
+          try {
+            console.log('DEBUG - CRITICAL - Broadcasting phase change to reading');
+            channelRef.current.send({
+              type: 'broadcast',
+              event: 'game_phase_change',
+              payload: {
+                phase: 'reading',
+                script: data.script, // Include script in phase change too as fallback
+                timestamp: Date.now()
+              }
+            });
+          } catch (broadcastErr) {
+            console.error('DEBUG - CRITICAL - Error broadcasting phase change:', broadcastErr);
+          }
+        }
+        
+        setGamePhase('reading');
+      }, 500); // Short delay between broadcasts
+      
     } catch (error) {
-      console.error('Error generating script:', error);
+      console.error('ERROR generating script:', error);
       alert('Failed to generate script. Please try again.');
     } finally {
       setIsGeneratingScript(false);
-      
-      // Reset preservation flag after a longer delay to ensure host stability
-      setTimeout(() => {
-        preservingHostRef.current = false;
-        console.log('DEBUG - Reset preservationFlag after script generation');
-      }, 10000); // Increase to 10 seconds
     }
   };
 
@@ -1653,6 +1621,96 @@ export default function Room() {
     
     return () => clearInterval(interval);
   }, [originalHostIdRef.current, playerId, hostId]);
+
+  // Add effect to fetch script for non-hosts in reading phase when script is missing
+  useEffect(() => {
+    if (gamePhase !== 'reading' || isHost || generatedScript) {
+      return;
+    }
+    
+    console.log('DEBUG - CRITICAL - Non-host in reading phase missing script, attempting to fetch from broadcast');
+    
+    // Instead of a database query, listen for script updates from the host
+    if (channelRef.current) {
+      // Send a direct request to the host for the script
+      try {
+        console.log('DEBUG - CRITICAL - Requesting script directly from host');
+        channelRef.current.send({
+          type: 'broadcast',
+          event: 'request_script',
+          payload: { 
+            requestingPlayerId: playerId,
+            requestingPlayerName: username
+          }
+        });
+      } catch (err) {
+        console.error('DEBUG - CRITICAL - Error requesting script from host:', err);
+      }
+    }
+  }, [gamePhase, isHost, generatedScript, playerId, username]);
+
+  // Add a listener for script requests from non-hosts
+  useEffect(() => {
+    if (!isHost || !channelRef.current) return;
+    
+    const handleScriptRequest = (payload: any) => {
+      console.log('DEBUG - CRITICAL - Host received script request from:', payload?.requestingPlayerName);
+      
+      if (generatedScript && channelRef.current) {
+        try {
+          // Send the script directly to the requesting player
+          channelRef.current.send({
+            type: 'broadcast',
+            event: 'script_response',
+            payload: { 
+              script: generatedScript,
+              forPlayerId: payload?.requestingPlayerId
+            }
+          });
+          console.log('DEBUG - CRITICAL - Host sent script to requesting player');
+        } catch (err) {
+          console.error('DEBUG - CRITICAL - Error sending script to player:', err);
+        }
+      } else {
+        console.log('DEBUG - CRITICAL - Host has no script to send');
+      }
+    };
+    
+    // Listen for script requests
+    const channel = channelRef.current;
+    const scriptRequestHandler = channel.on('broadcast', { event: 'request_script' }, ({ payload }) => {
+      handleScriptRequest(payload);
+    });
+    
+    return () => {
+      // Proper cleanup - we need to remove the listener, not unsubscribe from the channel
+      if (channelRef.current) {
+        // The correct way is to remove the specific listener
+        scriptRequestHandler.unsubscribe();
+      }
+    };
+  }, [isHost, generatedScript, playerId]);
+  
+  // Add listener for script responses
+  useEffect(() => {
+    if (!channelRef.current) return;
+    
+    const channel = channelRef.current;
+    const scriptResponseHandler = channel.on('broadcast', { event: 'script_response' }, ({ payload }) => {
+      // Only process if this response is for me or broadcast to all
+      if (!payload.forPlayerId || payload.forPlayerId === playerId) {
+        if (payload.script && !generatedScript) {
+          console.log('DEBUG - CRITICAL - Received script from direct response');
+          setGeneratedScript(payload.script);
+        }
+      }
+    });
+    
+    return () => {
+      // Proper cleanup
+      scriptResponseHandler.unsubscribe();
+    };
+  }, [playerId, generatedScript]);
 
   // Modify handleFinishReading to handle player count validation
   const handleFinishReading = () => {
@@ -2600,6 +2658,48 @@ export default function Room() {
   if (gamePhase === 'reading') {
     // Generate a title for the script based on game settings
     const scriptTitle = `A ${gameSettings.tone} Adventure at the ${gameSettings.scene}`;
+    
+    // Add debugging to help track script visibility issues
+    if (!isHost && !generatedScript) {
+      console.log('DEBUG - CRITICAL - Non-host in reading phase WITHOUT script, fetch should trigger');
+      
+      // Add retry mechanism for script fetching
+      React.useEffect(() => {
+        if (!generatedScript && !isHost && channelRef.current) {
+          console.log('DEBUG - CRITICAL - Setting up script retry mechanism');
+          
+          // Try multiple times with increasing delays
+          const retryTimes = [2000, 5000, 10000]; // 2s, 5s, 10s
+          
+          retryTimes.forEach((delay, index) => {
+            setTimeout(() => {
+              if (!generatedScript && channelRef.current) {
+                console.log(`DEBUG - CRITICAL - Script retry attempt ${index + 1}`);
+                try {
+                  channelRef.current.send({
+                    type: 'broadcast',
+                    event: 'request_script',
+                    payload: { 
+                      requestingPlayerId: playerId,
+                      requestingPlayerName: username,
+                      retry: index + 1,
+                      timestamp: Date.now()
+                    }
+                  });
+                } catch (err) {
+                  console.error(`DEBUG - CRITICAL - Error in script retry attempt ${index + 1}:`, err);
+                }
+              }
+            }, delay);
+          });
+        }
+      }, [generatedScript, isHost]);
+      
+    } else if (!generatedScript) {
+      console.log('DEBUG - CRITICAL - Host in reading phase WITHOUT script - unusual state');
+    } else {
+      console.log('DEBUG - Script is available for rendering');
+    }
     
     return (
       <main className="h-screen flex flex-col items-center p-6 bg-gray-50">
