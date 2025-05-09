@@ -2,6 +2,7 @@ import { useRouter } from "next/router";
 import { useEffect, useState, useRef } from "react";
 import { supa } from "../../lib/supa";
 import Link from "next/link";
+import { useRoom } from "../../lib/useRoom";
 
 type Player = { id: string; name: string; joinedAt: number; status: 'ready' | 'writing' | 'guessing' };
 type GameSettings = {
@@ -26,13 +27,24 @@ type PlayerVote = {
 export default function Room() {
   const router = useRouter();
   const { code: slug } = router.query;
+  const room = useRoom(typeof slug === 'string' ? slug : undefined);
+  const dbPhase = room?.phase;
+  const dbHostId = room?.current_host_id;
+  
+  // Local state variables
   const [players, setPlayers] = useState<Player[]>([]);
   const [username, setUsername] = useState("");
   const [tempUsername, setTempUsername] = useState("");
   const [copied, setCopied] = useState(false);
-  const [hostId, setHostId] = useState<string | null>(null);
+  const [_hostId, setHostId] = useState<string | null>(null);  // Renamed to avoid collision
   const [playerId] = useState(() => crypto.randomUUID());
-  const [gamePhase, setGamePhase] = useState<GamePhase>('lobby');
+  const [_gamePhase, setGamePhase] = useState<GamePhase>('lobby');  // Renamed to avoid collision
+  
+  // Define derived state variables (used throughout the component)
+  // These will shadow the state variables for all usages below
+  const gamePhase = (dbPhase as GamePhase) || _gamePhase;
+  const hostId = dbHostId || _hostId;
+  
   const [playerAssignments, setPlayerAssignments] = useState<PlayerAssignment[]>([]);
   const [assignedPlayer, setAssignedPlayer] = useState<Player | null>(null);
   const [description, setDescription] = useState("");
@@ -82,7 +94,7 @@ export default function Room() {
 
   // Track the original host ID in a ref to prevent it changing due to race conditions
   const originalHostIdRef = useRef<string | null>(null);
-  
+
   // Set a function to safely update the original host ID
   const setOriginalHostSafely = (id: string | null) => {
     console.log('DEBUG - CRITICAL - Setting original host ID:', {
@@ -108,6 +120,13 @@ export default function Room() {
     }
   };
 
+  // Calculate if all players have submitted
+  const allPlayersSubmitted = players.length > 0 && 
+    players.every(player => player.status === 'ready' || player.id === hostId);
+
+  // Calculate if current player is host with more explicit logging
+  const isHost = playerId === hostId;
+
   // Load username from localStorage after mount
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -125,13 +144,6 @@ export default function Room() {
     }
   }, [slug]);
 
-  // Calculate if all players have submitted
-  const allPlayersSubmitted = players.length > 0 && 
-    players.every(player => player.status === 'ready' || player.id === hostId);
-
-  // Calculate if current player is host with more explicit logging
-  const isHost = playerId === hostId;
-  
   // When game phase changes, store the previous phase
   useEffect(() => {
     // Don't run on initial render
@@ -367,17 +379,12 @@ export default function Room() {
           new Map(flat.map(player => [player.id, player])).values()
         );
         
-        // Use stable sorting function
-        const sortedPlayers = sortPlayersByStableId(uniquePlayers);
-        console.log('DEBUG - CRITICAL - Stable sorted players:', {
-          playerIds: sortedPlayers.map(p => ({ id: p.id, name: p.name }))
-        });
-        
-        setPlayers(sortedPlayers);
+        // CHANGED: Sort players by name for consistent ordering
+        setPlayers([...uniquePlayers].sort((a, b) => a.name.localeCompare(b.name)));
         
         // Only set original host if it's not already set and this is the first player
-        if (!originalHostIdRef.current && sortedPlayers.length === 1 && sortedPlayers[0].id === playerId) {
-          const firstPlayerId = sortedPlayers[0].id;
+        if (!originalHostIdRef.current && uniquePlayers.length === 1 && uniquePlayers[0].id === playerId) {
+          const firstPlayerId = uniquePlayers[0].id;
           console.log('DEBUG - CRITICAL - Setting first player as original host:', firstPlayerId);
           
           // Use our safe setter function
@@ -401,7 +408,7 @@ export default function Room() {
         
         // IMPROVED HOST LOGIC: Check if the original host from our ref is in the game
         const refOriginalHostPresent = originalHostIdRef.current && 
-          sortedPlayers.some(p => p.id === originalHostIdRef.current);
+          uniquePlayers.some(p => p.id === originalHostIdRef.current);
         
         console.log('DEBUG - CRITICAL - Host presence check:', {
           refOriginalHostPresent,
@@ -409,7 +416,7 @@ export default function Room() {
           originalHostId,
           hostId,
           playerId,
-          sortedPlayerIds: sortedPlayers.map(p => p.id)
+          sortedPlayerIds: uniquePlayers.map(p => p.id)
         });
         
         if (refOriginalHostPresent) {
@@ -438,23 +445,23 @@ export default function Room() {
               }
             }
           }
-        } else if (!hostId || !sortedPlayers.some(p => p.id === hostId)) {
+        } else if (!hostId || !uniquePlayers.some(p => p.id === hostId)) {
           // Original host ref not present AND current host not found in player list
-          if (sortedPlayers.length === 0) {
+          if (uniquePlayers.length === 0) {
             console.log('DEBUG - No players in the room, skipping host assignment');
             return;
           }
           
           // Use the first player from the sorted list as the new host
           // This is the ONLY case where we should assign a new host
-          const newHostId = sortedPlayers[0].id;
+          const newHostId = uniquePlayers[0].id;
           
           console.log('DEBUG - CRITICAL - Setting new host (original host absent):', {
             newHostId,
             currentHostId: hostId,
             originalHostIdRef: originalHostIdRef.current,
             playerId,
-            iAmFirstPlayer: playerId === sortedPlayers[0].id
+            iAmFirstPlayer: playerId === uniquePlayers[0].id
           });
           
           setHostId(newHostId);
@@ -472,7 +479,7 @@ export default function Room() {
                   originalHostId: originalHostIdRef.current,
                   fromPlayerId: playerId,
                   fromFunction: 'presenceSync_newHostWhenOriginalGone',
-                  sortedPlayerIds: sortedPlayers.map(p => p.id),
+                  sortedPlayerIds: uniquePlayers.map(p => p.id),
                   timestamp: Date.now()
                 }
               }).catch(err => console.error('DEBUG - Error broadcasting host update:', err));
@@ -486,7 +493,7 @@ export default function Room() {
         if (playerAssignments.length > 0) {
           const myAssignment = playerAssignments.find(a => a.playerId === playerId);
           if (myAssignment) {
-            const assigned = sortedPlayers.find(p => p.id === myAssignment.assignedPlayerId);
+            const assigned = uniquePlayers.find(p => p.id === myAssignment.assignedPlayerId);
             if (assigned) {
               setAssignedPlayer(assigned);
             }
@@ -1993,8 +2000,8 @@ export default function Room() {
       }
     } else if (!hostId || !players.some(p => p.id === hostId)) {
       // Original host not present AND host is missing
-      // Use first player from the sorted list
-      const sortedPlayers = [...players].sort((a, b) => a.joinedAt - b.joinedAt);
+      // Use first player from the sorted list by NAME (not join time)
+      const sortedPlayers = [...players].sort((a, b) => a.name.localeCompare(b.name));
       const newHostId = sortedPlayers[0]?.id;
       
       console.log('DEBUG - CRITICAL - Manual sync: sorted players for host selection:', {
