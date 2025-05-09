@@ -490,6 +490,12 @@ export default function Room() {
           
           // If the removed player was the host, determine a new host
           if (payload.playerId === hostId && updatedPlayers.length > 0) {
+            // --- TEMP stub until we rebuild host logic ---
+            interface Player { id: string }
+            function determineHost(players: Player[]): string | null {
+              return players.length ? players[0].id : null;
+            }
+            // ---------------------------------------------
             const newHostId = determineHost(updatedPlayers);
             console.log('DEBUG - Host was removed, selecting new host:', newHostId);
             
