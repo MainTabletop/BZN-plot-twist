@@ -213,37 +213,6 @@ export default function Room() {
     initializeRoomState();
   }, [slug]);
 
-  // Fix the determineHost function to never "fall back" when original host exists
-  const determineHost = (players: Player[]): string => {
-    if (!players.length) return '';
-    
-    console.log('DEBUG - CRITICAL - determineHost function called:', {
-      originalHostId,
-      currentHostId: hostId,
-      currentPhase: gamePhase,
-      playerCount: players.length,
-      preservingHost: preservingHostRef.current,
-      callStack: new Error().stack?.split('\n').slice(1, 3).join(' - ')
-    });
-    
-    // CRITICAL: If we have an originalHostId and that player is in the game,
-    // ALWAYS return the original host, regardless of any other factors
-    if (originalHostId && players.some(p => p.id === originalHostId)) {
-      console.log('DEBUG - CRITICAL - determineHost returning original host:', originalHostId);
-      return originalHostId;
-    }
-    
-    // Only if original host is gone, maintain current host if they're still in the game
-    if (hostId && players.some(p => p.id === hostId)) {
-      console.log('DEBUG - CRITICAL - determineHost maintaining current host:', hostId);
-      return hostId;
-    }
-    
-    // ONLY as a last resort when no original or current host exists, use first player
-    console.log('DEBUG - CRITICAL - determineHost falling back to first player:', players[0].id);
-    return players[0].id;
-  };
-
   // Improve the channel reconnection handler
   const handleChannelReconnect = () => {
     console.log('DEBUG - CRITICAL - Channel reconnection triggered:', {

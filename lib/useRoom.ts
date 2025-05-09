@@ -24,7 +24,21 @@ export function useRoom(roomCode: string | undefined) {
       .select('*')
       .eq('room_code', roomCode)
       .single()
-      .then(({ data, error }) => {
+      .then(async ({ data, error }) => {
+        if (error && error.code === "PGRLS") {
+          await supa.from("rooms").upsert(
+            { room_code: roomCode, phase: "lobby" },
+            { onConflict: "room_code" }
+          );
+          // re‑fetch so `room` state is populated
+          const { data: created } = await supa
+            .from("rooms")
+            .select("*")
+            .eq("room_code", roomCode)
+            .single();
+          if (created) setRoom(created as RoomRow);
+          return;
+        }
         if (error) console.error('useRoom fetch error', error);
         if (data)  setRoom(data as RoomRow);
       });
