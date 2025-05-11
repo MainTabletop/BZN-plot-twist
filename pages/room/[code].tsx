@@ -52,6 +52,7 @@ export default function Room() {
   const [hasSubmitted, setHasSubmitted] = useState(false);
   const [descriptions, setDescriptions] = useState<PlayerDescription[]>([]);
   const [submittedPlayerIds, setSubmittedPlayerIds] = useState<string[]>([]);
+  const [guessSubmittedPlayerIds, setGuessSubmittedPlayerIds] = useState<string[]>([]);
   const [gameSettings, setGameSettings] = useState<GameSettings>({
     tone: 'Funny',
     scene: 'Party',
@@ -1217,6 +1218,25 @@ export default function Room() {
         else if (payload.phase === 'results') {
           // MVPv1 update: No status changes needed
           console.log('DEBUG - MVP1 - Entering results phase');
+          
+          // Fix: Set scores and winners for non-host players from the payload
+          if (payload.scores) {
+            console.log('DEBUG - CRITICAL - Received scores in phase change payload:', payload.scores);
+            setPlayerScores(payload.scores);
+          } else {
+            console.error('DEBUG - CRITICAL - Missing scores in results phase payload!');
+          }
+          
+          // Set winners
+          if (payload.bestConceptWinner) {
+            console.log('DEBUG - CRITICAL - Setting Best Concept winner:', getPlayerName(payload.bestConceptWinner));
+            setBestConceptWinner(payload.bestConceptWinner);
+          }
+          
+          if (payload.bestDeliveryWinner) {
+            console.log('DEBUG - CRITICAL - Setting Best Delivery winner:', getPlayerName(payload.bestDeliveryWinner));
+            setBestDeliveryWinner(payload.bestDeliveryWinner);
+          }
         }
         else if (payload.phase === 'lobby') {
           // MVPv1 update: No status changes needed
@@ -1337,82 +1357,31 @@ export default function Room() {
           }
         }
       })
-      .on('broadcast', { event: 'host_update' }, ({ payload }) => {
-        console.log('DEBUG - CRITICAL - Host update broadcast:', payload);
+      .on('broadcast', { event: 'submit_guesses' }, ({ payload }) => {
+        console.log('DEBUG - MVPv1 - Guess submission broadcast:', payload);
         
-        // Log who sent this update with detailed information
-        console.log('DEBUG - CRITICAL - Processing host update:', { 
-          currentHostId: hostId,
-          updatedHostId: payload.hostId,
-          originalHost: originalHostId,
-          originalHostRef: originalHostIdRef.current,
-          isOriginalHost: originalHostIdRef.current === playerId,
-          fromFunction: payload.fromFunction || 'unknown',
-          fromPlayerId: payload.fromPlayerId,
-          timestamp: payload.timestamp,
-          currentTimestamp: Date.now()
+        // Store guesses from all players
+        if (payload.playerId && payload.guesses) {
+          setAllPlayerGuesses(prev => ({
+            ...prev,
+            [payload.playerId]: payload.guesses
+          }));
+        }
+        
+        // Add to list of submitted player IDs
+        setGuessSubmittedPlayerIds(prev => {
+          if (prev.includes(payload.playerId)) return prev;
+          return [...prev, payload.playerId];
         });
         
-        // IMPROVED HOST UPDATE LOGIC:
-        
-        // Rule 1: If I am the original host and someone is trying to change my status, reject it
-        if (originalHostIdRef.current === playerId && payload.hostId !== playerId) {
-          console.log('DEBUG - CRITICAL - Original host rejecting host change attempt');
-          
-          // Reassert ownership immediately
-          if (channelRef.current) {
-            try {
-              channelRef.current.send({
-                type: 'broadcast',
-                event: 'host_update',
-                payload: { 
-                  hostId: playerId,
-                  originalHostId: originalHostIdRef.current,
-                  forcedUpdate: true,
-                  fromPlayerId: playerId,
-                  fromFunction: 'hostUpdate_originalHostDefense',
-                  timestamp: Date.now()
-                }
-              });
-            } catch (err) {
-              console.error('DEBUG - Error sending host defense update:', err);
-            }
-          }
-          return;
-        }
-        
-        // Rule 2: Accept all updates from the original host (they have highest authority)
-        if (payload.fromPlayerId === originalHostIdRef.current) {
-          console.log('DEBUG - CRITICAL - Accepting host update from original host:', payload.hostId);
-          setHostId(payload.hostId);
-          return;
-        }
-        
-        // Rule 3: If original host is present in the game, only they can set host
-        const originalHostPresent = originalHostIdRef.current && 
-          players.some(p => p.id === originalHostIdRef.current);
-          
-        if (originalHostPresent) {
-          console.log('DEBUG - CRITICAL - Ignoring host update - original host is present');
-          return;
-        }
-        
-        // Rule 4: If we get here, there's no original host in the game, so accept the update
-        if (payload.hostId) {
-          // For safety, check if this is a stale update (older than 5 seconds)
-          if (payload.timestamp && Date.now() - payload.timestamp > 5000) {
-            console.log('DEBUG - CRITICAL - Rejecting stale host update from:', payload.fromPlayerId);
-            return;
-          }
-          
-          console.log('DEBUG - CRITICAL - Accepting host update (no original host present):', payload.hostId);
-          setHostId(payload.hostId);
-        }
-        
-        // Rule 5: Always update original host ID if we don't have one but keep using the ref
-        if (payload.originalHostId && !originalHostIdRef.current) {
-          console.log('DEBUG - CRITICAL - Setting original host from host update:', payload.originalHostId);
-          setOriginalHostSafely(payload.originalHostId);
+        // If we're the host, collect all guesses for results calculation
+        if (isHost) {
+          console.log('DEBUG - MVPv1 - Host received guess submission:', {
+            fromPlayer: payload.playerId,
+            guessCount: payload.guesses ? Object.keys(payload.guesses).length : 0,
+            totalSubmissions: guessSubmittedPlayerIds.length + 1, // +1 for this submission
+            remainingPlayers: players.length - (guessSubmittedPlayerIds.length + 1)
+          });
         }
       })
       .on('broadcast', { event: 'player_vote' }, ({ payload }) => {
@@ -1425,6 +1394,35 @@ export default function Room() {
             const filtered = prev.filter(v => v.playerId !== payload.playerId);
             // Add the new vote
             return [...filtered, payload as PlayerVote];
+          });
+          
+          // Update player status to ready
+          setPlayers(prevPlayers => 
+            prevPlayers.map(player => 
+              player.id === payload.playerId 
+                ? { ...player, status: 'ready' } 
+                : player
+            )
+          );
+        }
+      })
+      .on('broadcast', { event: 'player_vote_submitted' }, ({ payload }) => {
+        console.log('DEBUG - Player vote submission received:', payload);
+        
+        if (payload.playerId && payload.guessAuthorId) {
+          // Add the vote to our collection
+          setPlayerVotes(prev => {
+            // Remove any existing vote from this player
+            const filtered = prev.filter(v => v.playerId !== payload.playerId);
+            // Add the new vote
+            return [...filtered, payload as PlayerVote];
+          });
+          
+          // Add player to the guessSubmittedPlayerIds list
+          setGuessSubmittedPlayerIds(prev => {
+            if (prev.includes(payload.playerId)) return prev;
+            console.log('DEBUG - CRITICAL - Adding player to guessSubmittedPlayerIds:', payload.playerId);
+            return [...prev, payload.playerId];
           });
           
           // Update player status to ready
@@ -2453,8 +2451,14 @@ export default function Room() {
       preservingHostRef.current = true;
       console.log('DEBUG - CRITICAL - Setting preservation flag during guess submission');
       
-      // First update player status to 'ready' - Moved to useEffect
-      // await broadcastAndSyncPlayerStatus('ready');
+      // First update local state
+      setSubmittedGuesses(true);
+      
+      // Add to submitted IDs list (MVPv1 update - tracking through guessSubmittedPlayerIds)
+      setGuessSubmittedPlayerIds(prev => {
+        if (prev.includes(playerId)) return prev;
+        return [...prev, playerId];
+      });
       
       // If this is the original host, force broadcast host update before continuing
       if (playerId === originalHostIdRef.current) {
@@ -2485,15 +2489,13 @@ export default function Room() {
       
       await channelRef.current.send({
         type: 'broadcast',
-        event: 'player_guess_submitted',
+        event: 'submit_guesses',
         payload: { 
           playerId,
           guesses: playerGuesses,
           timestamp: Date.now()
         }
       });
-      
-      setSubmittedGuesses(true);
       
       // Non-original host players can reset their preservation flag after a short delay
       if (playerId !== originalHostIdRef.current) {
@@ -2564,6 +2566,7 @@ export default function Room() {
       prevHasSubmittedRef.current = false; // Reset ref
       setDescriptions([]);
       setSubmittedPlayerIds([]);
+      setGuessSubmittedPlayerIds([]); // Reset guess submission tracker
       setGeneratedScript("");
       setCurrentLineIndex(0);
       setPlayerGuesses({});
@@ -2684,19 +2687,23 @@ export default function Room() {
     if (gamePhase !== 'guessing') return false;
     
     // Check if all players have submitted their guesses
-    const allPlayersReady = players.every(player => 
-      player.status === 'ready' || player.id === playerId
+    const allPlayersSubmitted = players.every(player => 
+      guessSubmittedPlayerIds.includes(player.id)
     );
     
-    console.log('DEBUG - CRITICAL - Can show results check:', {
+    console.log('DEBUG - MVPv1 - Can show results check:', {
       playerId,
       isHost,
+      isOriginalHost: playerId === originalHostIdRef.current,
       gamePhase,
-      allPlayersReady,
-      playerStatuses: players.map(p => ({ id: p.id, name: p.name, status: p.status }))
+      allPlayersSubmitted,
+      guessSubmittedCount: guessSubmittedPlayerIds.length,
+      totalPlayers: players.length,
+      buttonWillShow: isOriginalHost && allPlayersSubmitted,
+      missingSubmissions: players.filter(p => !guessSubmittedPlayerIds.includes(p.id)).map(p => p.name)
     });
     
-    return allPlayersReady;
+    return allPlayersSubmitted;
   };
 
   // Fix the handleShowResults function to validate player count and statuses
@@ -2881,7 +2888,7 @@ export default function Room() {
             preserveHost: true,
             preservedHostId: originalHostIdRef.current,
             playerCount: players.length,
-            scores: playerScores, // This should be 'scores' from the calculated scores above
+            scores: scores, // Fix: Use locally calculated scores instead of playerScores state
             bestConceptWinner: bestConceptWinnerId,
             bestDeliveryWinner: bestDeliveryWinnerId,
             fromHostId: playerId, // Added fromHostId
@@ -2889,7 +2896,11 @@ export default function Room() {
           }
         });
         
-        console.log('DEBUG - CRITICAL - Original host sent phase change to results with preserved host');
+        console.log('DEBUG - CRITICAL - Original host sent phase change to results with preserved host:', {
+          scoresSize: Object.keys(scores).length,
+          bestConceptWinner: bestConceptWinnerId ? getPlayerName(bestConceptWinnerId) : 'none',
+          bestDeliveryWinner: bestDeliveryWinnerId ? getPlayerName(bestDeliveryWinnerId) : 'none'
+        });
         
         // Update game phase locally for responsiveness
         setGamePhase('results');
@@ -2929,96 +2940,59 @@ export default function Room() {
         bestConceptDescId: !!bestConceptDescId,
         bestDeliveryPlayerId: !!bestDeliveryPlayerId
       });
-      
-      alert('Please select a choice for each category before submitting.');
       return;
     }
+
+    // Set the preservation flag to prevent host changes during operation
+    console.log('DEBUG - CRITICAL - Setting preservation flag during vote submission');
+    preservingHostRef.current = true;
     
+    // Mark as submitted locally first for immediate UI feedback
+    setHasVoted(true);
+    setSubmittedGuesses(true); // Set to lock UI inputs
+    prevSubmittedGuessesRef.current = true; // Update ref to avoid duplicate triggers
+    
+    // Add yourself to the submission list
+    setGuessSubmittedPlayerIds(prev => {
+      if (prev.includes(playerId)) return prev;
+      console.log('DEBUG - CRITICAL - Adding self to guessSubmittedPlayerIds:', playerId);
+      return [...prev, playerId];
+    });
+
     try {
-      // Set preservation flag during vote submission
-      preservingHostRef.current = true;
-      console.log('DEBUG - CRITICAL - Setting preservation flag during vote submission');
-      
-      // Send votes
+      // Broadcast the vote to all players
       await channelRef.current.send({
         type: 'broadcast',
-        event: 'player_vote',
-        payload: { 
+        event: 'player_vote_submitted',
+        payload: {
           playerId,
           guessAuthorId,
           bestConceptDescId,
-          bestDeliveryPlayerId,
-          timestamp: Date.now()
+          bestDeliveryPlayerId
         }
       });
       
-      // In handleSubmitVotes, before updating own status
-      dbg('ui-trigger', { event: 'broadcastAndSyncPlayerStatus', requestedStatus: 'ready', gamePhase });
-      // Status update moved to useEffect
-      // await broadcastAndSyncPlayerStatus('ready');
+      console.log('DEBUG - MVPv1 - After vote submission:', {
+        playerId,
+        hasVoted,
+        submittedGuesses: true, // We just set this to true
+        guessSubmittedCount: guessSubmittedPlayerIds.length + 1, // +1 for optimistic update
+        allPlayers: players.length
+      });
+
+      // UI trigger to show feedback
+      broadcastAndSyncPlayerStatus('ready');
       
-      // Set hasVoted to trigger the useEffect
-      setHasVoted(true);
-      
-      // Original host should check if all players are ready
-      if (playerId === originalHostIdRef.current) {
-        // Check if all players are ready
-        setTimeout(() => {
-          const allPlayersReady = players.every(player => 
-            player.status === 'ready' || player.id === playerId
-          );
-          
-          console.log('DEBUG - CRITICAL - Original host checking if all players are ready after votes:', {
-            allPlayersReady,
-            playerStatuses: players.map(p => ({ name: p.name, status: p.status }))
-          });
-          
-          if (allPlayersReady) {
-            console.log('DEBUG - CRITICAL - All players ready, original host auto-showing results');
-            handleShowResults();
-          } else {
-            console.log('DEBUG - CRITICAL - Waiting for more players to submit votes');
-            
-            // Set up an interval to check until all players are ready
-            const checkInterval = setInterval(() => {
-              const allNowReady = players.every(player => 
-                player.status === 'ready' || player.id === playerId
-              );
-              
-              console.log('DEBUG - CRITICAL - Rechecking player readiness:', {
-                allNowReady,
-                playerStatuses: players.map(p => ({ name: p.name, status: p.status }))
-              });
-              
-              if (allNowReady) {
-                console.log('DEBUG - CRITICAL - All players now ready, showing results');
-                clearInterval(checkInterval);
-                handleShowResults();
-              }
-            }, 2000); // Check every 2 seconds
-            
-            // Set a cleanup timeout (30 seconds max wait)
-            setTimeout(() => {
-              clearInterval(checkInterval);
-              // Reset preservation flag in case we never reached all ready
-              if (preservingHostRef.current) {
-                preservingHostRef.current = false;
-                console.log('DEBUG - CRITICAL - Forced reset of preservation flag after timeout');
-              }
-            }, 30000);
-          }
-        }, 1000);
-      } else {
-        // Non-original host players should reset their flag after a delay
-        setTimeout(() => {
-          preservingHostRef.current = false;
-          console.log('DEBUG - CRITICAL - Reset preservation flag after vote submission');
-        }, 2000);
-      }
-      
-    } catch (error) {
-      console.error('DEBUG - CRITICAL - Error submitting votes:', error);
-      preservingHostRef.current = false; // Reset on error
+    } catch (err) {
+      console.error('DEBUG - CRITICAL - Error submitting votes:', err);
+      // Revert optimistic updates on error
+      setHasVoted(false);
+      setSubmittedGuesses(false); // Reset on error
+      prevSubmittedGuessesRef.current = false;
+      setGuessSubmittedPlayerIds(prev => prev.filter(id => id !== playerId));
+    } finally {
+      console.log('DEBUG - CRITICAL - Reset preservation flag after vote submission');
+      preservingHostRef.current = false;
     }
   };
 
@@ -3576,7 +3550,7 @@ export default function Room() {
             
             {/* Add submission counter */}
             <div className="mb-4 text-center">
-              <strong>{submittedPlayerIds.length} of {players.length}</strong> players have submitted
+              <strong>{guessSubmittedPlayerIds.length} of {players.length}</strong> players have submitted
             </div>
             
             {renderDescriptionPhase()}
@@ -3863,6 +3837,18 @@ export default function Room() {
             </button>
           </div>
           
+          {/* Add success message for clearer feedback */}
+          {submittedGuesses && (
+            <div className="mt-4 p-4 bg-green-50 border border-green-200 rounded-lg text-center">
+              <p className="flex items-center justify-center text-green-700 font-medium">
+                <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                </svg>
+                Your votes have been submitted successfully! Waiting for other players...
+              </p>
+            </div>
+          )}
+          
           {(!guessAuthorId || !bestConceptDescId || !bestDeliveryPlayerId) && !submittedGuesses && (
             <p className="text-center text-amber-600 mt-4">
               You need to complete all three sections before submitting
@@ -3887,16 +3873,16 @@ export default function Room() {
                   <div className="text-xs text-center mt-1 text-blue-600">You</div>
                 )}
                 <div className={`mt-2 text-center text-sm px-2 py-1 rounded-full 
-                  ${player.status === 'ready'
+                  ${guessSubmittedPlayerIds.includes(player.id)
                     ? 'bg-green-100 text-green-800' 
                     : 'bg-amber-100 text-amber-800'}`}
                 >
-                  {player.status === 'ready' ? 'Submitted' : 'Pending'}
+                  {guessSubmittedPlayerIds.includes(player.id) ? 'Submitted' : 'Pending'}
                 </div>
               </div>
             ))}
           </div>
-          {isOriginalHost && stablePlayers.every(p => p.status === 'ready') && (
+          {isOriginalHost && stablePlayers.every(p => guessSubmittedPlayerIds.includes(p.id)) && (
             <div className="mt-4 p-4 bg-green-50 border border-green-200 rounded-lg text-center">
               <p className="text-green-700 font-medium">All players have submitted their votes!</p>
               <button
@@ -3914,6 +3900,18 @@ export default function Room() {
   
   // Results phase UI
   if (gamePhase === 'results') {
+    // Debug log for results data
+    console.log('DEBUG - CRITICAL - Rendering results UI with data:', {
+      hasScores: Object.keys(playerScores).length > 0,
+      totalScores: Object.keys(playerScores).length,
+      playerCount: players.length,
+      scores: playerScores,
+      bestConceptWinner: bestConceptWinner ? getPlayerName(bestConceptWinner) : 'None',
+      bestDeliveryWinner: bestDeliveryWinner ? getPlayerName(bestDeliveryWinner) : 'None',
+      isHost,
+      isOriginalHost: playerId === originalHostId
+    });
+    
     return (
       <main className="h-screen flex flex-col items-center p-6 bg-gray-50">
         <Link href="/" className="transition-transform hover:scale-105">
@@ -3950,6 +3948,18 @@ export default function Room() {
               Thanks for playing PlotTwist! Who will win the awards?
             </div>
           </div>
+          
+          {/* Debug info for scores */}
+          {Object.keys(playerScores).length === 0 && (
+            <div className="mb-4 p-3 bg-amber-100 text-amber-800 rounded-lg">
+              <p className="font-medium">Debug Info: No scores found!</p>
+              <p className="text-sm">Player count: {players.length}</p>
+              <p className="text-sm">Best Concept Winner: {bestConceptWinner ? getPlayerName(bestConceptWinner) : 'None'}</p>
+              <p className="text-sm">Best Delivery Winner: {bestDeliveryWinner ? getPlayerName(bestDeliveryWinner) : 'None'}</p>
+              <p className="text-sm">Is host: {isHost ? 'Yes' : 'No'}</p>
+              <p className="text-sm">Is original host: {playerId === originalHostId ? 'Yes' : 'No'}</p>
+            </div>
+          )}
           
           <div className="space-y-10">
             {/* Player Scoreboard */}
