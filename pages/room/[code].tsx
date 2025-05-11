@@ -1198,65 +1198,12 @@ export default function Room() {
           setDescriptions([]);
           setDescription("");
 
-          // CRITICAL FIX: Also directly update player list to ensure all players are in writing state
-          setPlayers(prevPlayers => 
-            prevPlayers.map(player => ({
-              ...player,
-              status: 'writing' // Force all players to writing status in description phase
-            }))
-          );
-          console.log('DEBUG - CRITICAL - Directly updated all players to writing status for description phase');
-
-          // CRITICAL FIX: Add a FORCED broadcast to ALL clients about the forced status change
-          // This tells all clients to immediately sync their status to writing
-          if (channelRef.current) {
-            try {
-              channelRef.current.send({
-                type: 'broadcast',
-                event: 'force_status_sync',
-                payload: {
-                  phase: 'description',
-                  forcedStatus: 'writing',
-                  fromHostId: playerId,
-                  timestamp: Date.now()
-                }
-              });
-              console.log('DEBUG - CRITICAL - Sent force_status_sync broadcast for description phase');
-            } catch (err) {
-              console.error('DEBUG - CRITICAL - Error sending force status sync:', err);
-            }
-          }
-
-          // CRITICAL FIX: Force tracking with writing status before broadcast
-          // This ensures we set our status to writing in presence BEFORE broadcasting
-          if (channelRef.current) {
-            const currentPlayerFromState = players.find(p => p.id === playerId);
-            const seatNumber = currentPlayerFromState?.seatNumber;
-            
-            // Immediately track with writing status to ensure proper initial state
-            console.log('DEBUG - CRITICAL - Forcing writing status before broadcast in description phase');
-            channelRef.current.track({
-              id: playerId,
-              name: username,
-              joinedAt: Date.now(),
-              seatNumber,
-              status: 'writing' // Always start with writing for description phase
-            }).then(() => {
-              // Only after tracking completes, broadcast status to others
-              broadcastAndSyncPlayerStatus('writing');
-            }).catch((err: Error) => {
-              console.error('DEBUG - CRITICAL - Error tracking writing status in description phase:', err);
-              // Still try to broadcast even if tracking fails
-              broadcastAndSyncPlayerStatus('writing');
-            });
-          } else {
-            // Fallback if channel isn't available
-            broadcastAndSyncPlayerStatus('writing');
-          }
+          // MVPv1 update: We no longer need to manage status since we show submission count instead
+          console.log('DEBUG - MVP1 - Entering description phase - using submittedPlayerIds for tracking');
         }
         else if (payload.phase === 'reading') {
-          // Reset player status to ready for the reading phase
-          broadcastAndSyncPlayerStatus('ready');
+          // Nothing special needed for reading phase in MVPv1
+          console.log('DEBUG - MVP1 - Entering reading phase');
         }
         else if (payload.phase === 'guessing') {
           // Reset guesses state
@@ -1264,16 +1211,16 @@ export default function Room() {
           setSubmittedGuesses(false);
           prevSubmittedGuessesRef.current = false; // Also reset the ref
           
-          // Update player status to guessing for the guessing phase
-          broadcastAndSyncPlayerStatus('guessing');
+          // MVPv1 update: No need to track status for guessing phase
+          console.log('DEBUG - MVP1 - Entering guessing phase');
         }
         else if (payload.phase === 'results') {
-          // Update player status back to ready for results phase
-          broadcastAndSyncPlayerStatus('ready');
+          // MVPv1 update: No status changes needed
+          console.log('DEBUG - MVP1 - Entering results phase');
         }
         else if (payload.phase === 'lobby') {
-          // Update player status to ready for lobby
-          broadcastAndSyncPlayerStatus('ready');
+          // MVPv1 update: No status changes needed
+          console.log('DEBUG - MVP1 - Entering lobby');
         }
         
         console.log('DEBUG - CRITICAL - Game phase change END:', {
@@ -3077,6 +3024,11 @@ export default function Room() {
 
   // Add a tracking function to keep player counts in sync
   const broadcastAndSyncPlayerStatus = async (status: 'ready' | 'writing' | 'guessing') => {
+    // MVPv1 - Status icons removed: This function is kept for reference but no longer used
+    // Since we've removed real-time status icons, we don't need to broadcast status changes
+    // The submittedPlayerIds array is now the single source of truth for submission status
+    
+    /*
     dbg('emit', { playerId, newStatus: status, gamePhase });
     console.log('DEBUG - CRITICAL - Broadcasting player status:', {
       myId: playerId,
@@ -3233,6 +3185,30 @@ export default function Room() {
           }).catch((err: Error) => console.error('Status error retry failed:', err));
         }
       }, 500);
+    }
+    */
+
+    // Just update players' status in the local state for now
+    setPlayers(prevPlayers => 
+      prevPlayers.map(player => {
+        if (player.id === playerId) {
+          return { ...player, status };
+        }
+        return player;
+      })
+    );
+    
+    // If we're in the description phase and setting status to ready,
+    // we should also tell other players we've submitted
+    if (gamePhase === 'description' && status === 'ready' && channelRef.current) {
+      // This broadcast will update the counter on all clients
+      channelRef.current.send({
+        type: 'broadcast',
+        event: 'submit_description',
+        payload: {
+          playerId
+        }
+      }).catch((err: Error) => console.error('Error broadcasting submission:', err));
     }
   };
 
@@ -3598,6 +3574,11 @@ export default function Room() {
               Write a character description for:
             </h2>
             
+            {/* Add submission counter */}
+            <div className="mb-4 text-center">
+              <strong>{submittedPlayerIds.length} of {players.length}</strong> players have submitted
+            </div>
+            
             {renderDescriptionPhase()}
           </div>
         </div>
@@ -3621,23 +3602,21 @@ export default function Room() {
                     )}
                   </div>
                   
-                  <div className="flex items-center">
-                    {player.status === 'ready' ? (
-                      <div className="flex items-center text-green-600 bg-green-50 px-2 py-1 rounded">
-                        <svg className="w-5 h-5 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                        </svg>
-                        <span className="text-sm font-medium">Ready</span>
-                      </div>
-                    ) : (
-                      <div className="flex items-center text-amber-600 bg-amber-50 px-2 py-1 rounded">
-                        <svg className="w-5 h-5 mr-1 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                        </svg>
-                        <span className="text-sm font-medium">Writing</span>
-                      </div>
-                    )}
-                  </div>
+                  {submittedPlayerIds.includes(player.id) ? (
+                    <div className="flex items-center text-green-600 bg-green-50 px-2 py-1 rounded">
+                      <svg className="w-5 h-5 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                      </svg>
+                      <span className="text-sm font-medium">Submitted</span>
+                    </div>
+                  ) : (
+                    <div className="flex items-center text-amber-600 bg-amber-50 px-2 py-1 rounded">
+                      <svg className="w-5 h-5 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                      </svg>
+                      <span className="text-sm font-medium">Pending</span>
+                    </div>
+                  )}
                 </div>
               ))}
             </div>
@@ -3729,6 +3708,11 @@ export default function Room() {
           <p className="text-gray-700 mb-6 text-center">
             Vote for your favorite performances and guess who wrote your character.
           </p>
+          
+          {/* Add submission counter */}
+          <div className="mb-4 text-center">
+            <strong>{players.filter(p => p.status === 'ready').length} of {players.length}</strong> players have submitted
+          </div>
           
           {/* Section A: Who wrote your description? */}
           <div className="mb-8 bg-blue-50 rounded-lg p-6 border-2 border-blue-100">
@@ -3903,11 +3887,11 @@ export default function Room() {
                   <div className="text-xs text-center mt-1 text-blue-600">You</div>
                 )}
                 <div className={`mt-2 text-center text-sm px-2 py-1 rounded-full 
-                  ${player.status === 'ready' 
+                  ${player.status === 'ready'
                     ? 'bg-green-100 text-green-800' 
                     : 'bg-amber-100 text-amber-800'}`}
                 >
-                  {player.status === 'ready' ? 'Ready' : 'Voting'}
+                  {player.status === 'ready' ? 'Submitted' : 'Pending'}
                 </div>
               </div>
             ))}
@@ -4236,12 +4220,13 @@ export default function Room() {
       {gamePhase === 'lobby' && (
         <>
           <h2 className="text-2xl font-semibold">Players</h2>
+          <div className="mb-4 text-center">
+            <strong>{players.length}</strong> players in the room
+          </div>
           <ul className="text-xl">
-        {stablePlayers.map((p) => (
+            {stablePlayers.map((p) => (
               <li key={p.id} className="py-1 flex items-center gap-2">
-                <span className="text-base">
-                  {p.status === 'ready' ? '🟢' : '✏️'}
-                </span>
+                <span className="text-base">—</span>
                 {p.name}
                 {p.id === hostId && (
                   <span className="text-sm px-2 py-0.5 bg-purple-500 text-white rounded-full">
@@ -4258,8 +4243,8 @@ export default function Room() {
                   </button>
                 )}
               </li>
-        ))}
-      </ul>
+            ))}
+          </ul>
         </>
       )}
     </main>
