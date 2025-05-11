@@ -95,74 +95,6 @@ export default function Room() {
   // Track the original host ID in a ref to prevent it changing due to race conditions
   const originalHostIdRef = useRef<string | null>(null);
   
-  // Refs to track previous state values
-  const prevHasSubmittedRef = useRef<boolean>(false);
-  const prevSubmittedGuessesRef = useRef<boolean>(false);
-  const prevHasVotedRef = useRef<boolean>(false);
-  
-  // Effect to broadcast ready status after hasSubmitted changes - with improved state tracking
-  useEffect(() => {
-    console.log('DEBUG - CRITICAL - useEffect[hasSubmitted, gamePhase] triggered:', {
-      hasSubmitted,
-      gamePhase,
-      prevHasSubmittedRef: prevHasSubmittedRef.current
-    });
-    
-    // Only fire when hasSubmitted transitions from false to true, not on initial mount or phase changes
-    if (gamePhase === 'description' && hasSubmitted && !prevHasSubmittedRef.current) {
-      console.log('DEBUG - CRITICAL - Broadcasting ready status from useEffect after hasSubmitted CHANGED from false to true');
-      broadcastAndSyncPlayerStatus('ready');
-    }
-    // Update ref for next comparison
-    prevHasSubmittedRef.current = hasSubmitted;
-  }, [hasSubmitted, gamePhase]);
-
-  // Effect to broadcast ready status after submittedGuesses changes - with improved state tracking
-  useEffect(() => {
-    console.log('DEBUG - CRITICAL - useEffect[submittedGuesses, gamePhase] triggered:', {
-      submittedGuesses,
-      gamePhase,
-      prevSubmittedGuessesRef: prevSubmittedGuessesRef.current
-    });
-    
-    // Only fire when submittedGuesses transitions from false to true
-    if (gamePhase === 'guessing' && submittedGuesses && !prevSubmittedGuessesRef.current) {
-      console.log('DEBUG - CRITICAL - Broadcasting ready status from useEffect after submittedGuesses CHANGED from false to true');
-      broadcastAndSyncPlayerStatus('ready');
-    }
-    // Update ref for next comparison
-    prevSubmittedGuessesRef.current = submittedGuesses;
-  }, [submittedGuesses, gamePhase]);
-  
-  // Effect to broadcast ready status after voting - with improved state tracking
-  useEffect(() => {
-    console.log('DEBUG - CRITICAL - useEffect[hasVoted, gamePhase] triggered:', {
-      hasVoted,
-      gamePhase,
-      prevHasVotedRef: prevHasVotedRef.current
-    });
-    
-    // Only fire when hasVoted transitions from false to true
-    if (gamePhase === 'results' && hasVoted && !prevHasVotedRef.current) {
-      console.log('DEBUG - CRITICAL - Broadcasting ready status from useEffect after hasVoted CHANGED from false to true');
-      broadcastAndSyncPlayerStatus('ready');
-    }
-    // Update ref for next comparison
-    prevHasVotedRef.current = hasVoted;
-  }, [hasVoted, gamePhase]);
-  
-  // Reset refs when phase changes
-  useEffect(() => {
-    // Reset state tracking refs on phase change
-    if (gamePhase === 'description') {
-      prevHasSubmittedRef.current = false;
-    } else if (gamePhase === 'guessing') {
-      prevSubmittedGuessesRef.current = false;
-    } else if (gamePhase === 'results') {
-      prevHasVotedRef.current = false;
-    }
-  }, [gamePhase]);
-
   // Set a function to safely update the original host ID
   const setOriginalHostSafely = (id: string | null) => {
     console.log('DEBUG - CRITICAL - Setting original host ID:', {
@@ -351,42 +283,6 @@ export default function Room() {
     return players[0].id;
   };
 
-  // Helper function to determine correct player status based on game phase and player state
-  const determineCorrectStatus = (
-    phase: GamePhase, 
-    hasSubmitted: boolean, 
-    submittedGuesses: boolean, 
-    hasVoted: boolean
-  ): 'ready' | 'writing' | 'guessing' => {
-    console.log('DEBUG - Determining correct status for phase:', {
-      phase,
-      hasSubmitted,
-      submittedGuesses,
-      hasVoted
-    });
-    
-    // Status hierarchy based on game phase
-    switch (phase) {
-      case 'description':
-        // In description phase, only ready if submitted, otherwise writing
-        return hasSubmitted ? 'ready' : 'writing';
-        
-      case 'guessing':
-        // In guessing phase, only ready if guesses submitted, otherwise guessing
-        return submittedGuesses ? 'ready' : 'guessing';
-        
-      case 'results':
-        // In results phase, only ready if voted, otherwise default to ready
-        return hasVoted ? 'ready' : 'ready'; // Could change second 'ready' to something else if needed
-        
-      case 'reading':
-      case 'lobby':
-      default:
-        // Always ready in these phases
-        return 'ready';
-    }
-  };
-
   // Improve the channel reconnection handler
   const handleChannelReconnect = async () => {
     console.log('DEBUG - CRITICAL - Channel reconnection triggered:', {
@@ -403,6 +299,15 @@ export default function Room() {
     // Attempt to rejoin with the same player ID and state
     if (channelRef.current) {
       console.log('DEBUG - CRITICAL - Reconnecting with gamePhase:', gamePhase);
+      
+      // Track our presence again with appropriate status based on game phase
+      let status: 'ready' | 'writing' | 'guessing' = 'ready';
+      
+      if (gamePhase === 'description') {
+        status = 'writing';
+      } else if (gamePhase === 'guessing') {
+        status = 'guessing';
+      }
       
       // Get seat number from local state if available
       let seatNumber: number | undefined;
@@ -426,32 +331,15 @@ export default function Room() {
         }
       }
       
-      // FIXED: Use explicit phase-based status assignment instead of helper function
-      let reconnectStatus: 'ready' | 'writing' | 'guessing';
-      
-      if (gamePhase === 'description') {
-        // In description phase, only ready if submitted
-        reconnectStatus = hasSubmitted ? 'ready' : 'writing';
-        console.log('DEBUG - CRITICAL - Setting reconnect status for description phase:', reconnectStatus);
-      } else if (gamePhase === 'guessing') {
-        // In guessing phase, only ready if guesses submitted
-        reconnectStatus = submittedGuesses ? 'ready' : 'guessing';
-        console.log('DEBUG - CRITICAL - Setting reconnect status for guessing phase:', reconnectStatus);
-      } else {
-        // For other phases, default to ready
-        reconnectStatus = 'ready';
-      }
-      
       // Update our presence with consistent data
       await channelRef.current.track({ 
         id: playerId, 
         name: username,
         joinedAt: Date.now(),
-        seatNumber,
-        status: reconnectStatus
+        seatNumber
       });
       
-      console.log('DEBUG - CRITICAL - Retracked presence after reconnection with status:', reconnectStatus, 'and seat number:', seatNumber);
+      console.log('DEBUG - CRITICAL - Retracked presence after reconnection with status:', status, 'and seat number:', seatNumber);
       
       // Perform phase-specific recovery
       if (gamePhase !== 'lobby') {
@@ -543,17 +431,16 @@ export default function Room() {
       if (existingPlayer && existingPlayer.seat_number) {
         console.log('DEBUG - CRITICAL - Player already has seat number:', existingPlayer.seat_number);
         
-        // Update presence with existing seat number (NO STATUS FIELD)
+        // Update presence with existing seat number
         if (channelRef.current) {
           await channelRef.current.track({ 
             id: playerId, 
             name: username,
             joinedAt: Date.now(),
             seatNumber: existingPlayer.seat_number
-            // STATUS REMOVED: Let phase_change handler or presence sync on other clients determine initial status
           });
           
-          console.log('DEBUG - CRITICAL - Updated presence with existing seat number (NO STATUS):', existingPlayer.seat_number);
+          console.log('DEBUG - CRITICAL - Updated presence with existing seat number:', existingPlayer.seat_number);
         }
         return;
       }
@@ -572,35 +459,8 @@ export default function Room() {
         : 1;
       
       console.log('DEBUG - CRITICAL - Next seat number:', nextSeatNumber);
-
-      // Fetch current room phase to set a more accurate initial DB status
-      let dbStatusToInsert: 'ready' | 'writing' | 'guessing' = 'ready'; // Default
-      try {
-        const { data: roomData, error: roomError } = await supa
-          .from('rooms')
-          .select('phase')
-          .eq('room_code', slug)
-          .single();
-
-        if (roomError) {
-          console.error('DEBUG - CRITICAL - Error fetching room phase for DB insert in assignPlayerSeatNumber:', roomError);
-          // Keep default 'ready' in case of error
-        } else if (roomData && roomData.phase) {
-          console.log('DEBUG - CRITICAL - Fetched room phase for DB status in assignPlayerSeatNumber:', roomData.phase);
-          if (roomData.phase === 'description') {
-            dbStatusToInsert = 'writing';
-          } else if (roomData.phase === 'guessing') {
-            dbStatusToInsert = 'guessing';
-          } // 'lobby', 'reading', 'results' will use 'ready' by default
-        } else {
-          console.log('DEBUG - CRITICAL - No room data/phase found for DB status in assignPlayerSeatNumber, defaulting to ready');
-        }
-      } catch (fetchPhaseError) {
-        console.error('DEBUG - CRITICAL - Exception fetching room phase for DB insert in assignPlayerSeatNumber:', fetchPhaseError);
-        // Keep default 'ready' in case of exception
-      }
       
-      // Simple insert without onConflict, using determined DB status
+      // Simple insert without onConflict
       const { error: insertError } = await supa
         .from('players')
         .insert([
@@ -609,7 +469,7 @@ export default function Room() {
             room_code: slug, 
             seat_number: nextSeatNumber,
             name: username,
-            status: dbStatusToInsert // Use the determined status for DB
+            status: 'ready'
           }
         ]);
       
@@ -618,19 +478,18 @@ export default function Room() {
         return;
       } 
         
-      console.log('DEBUG - CRITICAL - Successfully assigned seat number:', nextSeatNumber, 'and inserted into DB with status:', dbStatusToInsert);
+      console.log('DEBUG - CRITICAL - Successfully assigned seat number:', nextSeatNumber);
       
-      // Track presence with seat number (NO STATUS FIELD)
+      // Track presence with seat number
       if (channelRef.current) {
         await channelRef.current.track({ 
           id: playerId, 
           name: username,
           joinedAt: Date.now(),
           seatNumber: nextSeatNumber
-          // STATUS REMOVED: Let phase_change handler or presence sync on other clients determine initial status
         });
         
-        console.log('DEBUG - CRITICAL - Updated presence with new seat number (NO STATUS):', nextSeatNumber);
+        console.log('DEBUG - CRITICAL - Updated presence with seat number:', nextSeatNumber);
       }
     } catch (err) {
       console.error('DEBUG - CRITICAL - Error in seat number assignment:', err);
@@ -670,133 +529,33 @@ export default function Room() {
       .on("presence", { event: "sync" }, () => {
         const state = channel.presenceState<Player>();
         console.log('DEBUG - CRITICAL - Presence sync START:', { 
-          playerCount: Object.values(state).flat().length,
-          gamePhase,
-          myId: playerId,
-          isHost: playerId === hostId
+          state, 
+          playerId, 
+          hostId,
+          originalHostId,
+          originalHostIdRef: originalHostIdRef.current,
+          hostInitialized: hostInitializedRef.current,
+          preservingHost: preservingHostRef.current,
+          gamePhase
         });
         
         const flat = Object.values(state).flat();
+        console.log('DEBUG - Flattened players:', flat);
         
-        // Create a map of existing players by ID for status preservation
-        const prevPlayersMap = new Map<string, Player>();
-        players.forEach(p => prevPlayersMap.set(p.id, p));
+        // Debug presence payloads - check if seatNumber is coming through
+        flat.forEach(player => {
+          console.log(`DEBUG - PLAYER PAYLOAD: ${player.name} (${player.id.slice(0,8)}) seatNumber=${player.seatNumber !== undefined ? player.seatNumber : 'undefined'}`);
+        });
         
-        // Debug presence payloads - consolidated to a single summary log
-        console.log(`DEBUG - Processing ${flat.length} player presence entries with seat numbers: ${flat.filter(p => p.seatNumber !== undefined).length}/${flat.length}`);
-        
-        // Build summary of player statuses for logging
-        const statusSummary = players.reduce((acc, player) => {
-          acc[player.name] = player.status;
-          return acc;
-        }, {} as Record<string, string>);
-        
-        console.log('DEBUG - CRITICAL - Current player statuses:', statusSummary);
-        
-        // Remove duplicates and merge with existing player data (especially status)
+        // Remove duplicates by using a Map
         const uniquePlayers = Array.from(
-          new Map(flat.map(player => {
-            // Get existing player data or create default with correct initial status
-            const existing = prevPlayersMap.get(player.id) || { 
-              status: determineCorrectStatus(gamePhase, false, false, false)
-            };
-            
-            // Determine the correct status to use based on our status hierarchy rules
-            let statusToUse = existing.status;
-            
-            // Only overwrite status from presence if it represents valid game progress
-            if (player.status) {
-              // Status hierarchy rules:
-              // 1. Never downgrade from 'ready' to 'writing' or 'guessing' through presence
-              // 2. Never upgrade from 'writing' to 'ready' in description phase unless player has submitted
-              // 3. Never upgrade from 'guessing' to 'ready' in guessing phase unless player has submitted guesses
-              const isUpgrade = 
-                (existing.status === 'writing' && player.status === 'ready') ||
-                (existing.status === 'guessing' && player.status === 'ready');
-              
-              if (isUpgrade) {
-                // Validate upgrades to ready status based on game phase
-                if (gamePhase === 'description') {
-                  // In description phase, only allow upgrade to ready if player has submitted
-                  const hasPlayerSubmitted = submittedPlayerIds.includes(player.id);
-                  if (hasPlayerSubmitted) {
-                    // Valid upgrade since player has submitted
-                    statusToUse = player.status;
-                    console.log(`[VALID] ${player.id.slice(0, 8)} → ${player.status} (has submitted)`);
-                  } else {
-                    // CRITICAL FIX: Keep as writing if no submission record
-                    // This is the key protection against incorrect status changes
-                    console.log(`[REJECT] ${player.id.slice(0, 8)} upgrade to ${player.status} blocked (no submission in desc phase)`);
-                    statusToUse = 'writing'; // Explicitly force writing status for description phase
-                  }
-                }
-                else if (gamePhase === 'guessing') {
-                  // TODO: Add similar validation for guessing phase if you track submission state for guesses
-                  // For now, accept the upgrade in other phases
-                  statusToUse = player.status;
-                }
-                else {
-                  // For other phases, accept the upgrade
-                  statusToUse = player.status;
-                }
-              }
-              else if (player.status === existing.status) {
-                // Same status, no change needed
-                statusToUse = existing.status;
-              }
-              else if (existing.status === 'ready' && (player.status === 'writing' || player.status === 'guessing')) {
-                // CRITICAL FIX OVERRIDE: For description phase, ALWAYS accept a writing status
-                // regardless of previous status. This is necessary to fix the persistent
-                // status issue at game start.
-                if (gamePhase === 'description' && player.status === 'writing') {
-                  console.log(`DEBUG - CRITICAL - OVERRIDE: Forcing player ${player.id} to writing status in description phase`);
-                  statusToUse = 'writing';
-                } else {
-                  // For other phases, never downgrade from ready to writing/guessing
-                  console.log(`DEBUG - CRITICAL - Preventing downgrade from ready to ${player.status} for ${player.id}`);
-                  statusToUse = existing.status;
-                }
-              }
-              else {
-                // For other cases (e.g., writing→guessing), accept the new status
-                statusToUse = player.status;
-              }
-              
-              // CRITICAL FIX: Extra validation for description phase
-              // Force players to remain in "writing" status during description phase unless they've submitted
-              if (gamePhase === 'description' && statusToUse === 'ready') {
-                const hasPlayerSubmitted = submittedPlayerIds.includes(player.id);
-                if (!hasPlayerSubmitted) {
-                  console.log(`DEBUG - CRITICAL - Forcing player back to writing status in description phase: ${player.id}`);
-                  statusToUse = 'writing';
-                }
-              }
-            }
-            
-            // Create the merged player with correct status
-            const merged = { 
-              ...existing, 
-              ...player,
-              status: statusToUse // Use the determined status
-            };
-            
-            // Log significant status changes
-            if (existing.status !== statusToUse) {
-              console.log(`DEBUG - CRITICAL - Status changed for ${player.id} from ${existing.status} to ${statusToUse}`);
-            }
-            
-            return [player.id, merged];
-          })).values()
+          new Map(flat.map(player => [player.id, player])).values()
         );
         
         // Use stable sorting function
         const sortedPlayers = sortPlayersByStableId(uniquePlayers);
-        console.log('DEBUG - CRITICAL - Updated player statuses:', {
-          count: sortedPlayers.length,
-          statuses: sortedPlayers.reduce((acc, p) => {
-            acc[p.name] = p.status;
-            return acc;
-          }, {} as Record<string, string>)
+        console.log('DEBUG - CRITICAL - Stable sorted players:', {
+          playerIds: sortedPlayers.map(p => ({ id: p.id, name: p.name, seatNumber: p.seatNumber }))
         });
         
         setPlayers(sortedPlayers);
@@ -831,8 +590,11 @@ export default function Room() {
         
         console.log('DEBUG - CRITICAL - Host presence check:', {
           refOriginalHostPresent,
-          originalHost: originalHostIdRef.current?.slice(0, 8),
-          currentHost: hostId?.slice(0, 8)
+          originalHostIdRef: originalHostIdRef.current,
+          originalHostId,
+          hostId,
+          playerId,
+          sortedPlayerIds: sortedPlayers.map(p => p.id)
         });
         
         if (refOriginalHostPresent) {
@@ -873,7 +635,10 @@ export default function Room() {
           const newHostId = sortedPlayers[0].id;
           
           console.log('DEBUG - CRITICAL - Setting new host (original host absent):', {
-            newHostId: newHostId.slice(0, 8),
+            newHostId,
+            currentHostId: hostId,
+            originalHostIdRef: originalHostIdRef.current,
+            playerId,
             iAmFirstPlayer: playerId === sortedPlayers[0].id
           });
           
@@ -892,6 +657,7 @@ export default function Room() {
                   originalHostId: originalHostIdRef.current,
                   fromPlayerId: playerId,
                   fromFunction: 'presenceSync_newHostWhenOriginalGone',
+                  sortedPlayerIds: sortedPlayers.map(p => p.id),
                   timestamp: Date.now()
                 }
               }).catch(err => console.error('DEBUG - Error broadcasting host update:', err));
@@ -913,8 +679,11 @@ export default function Room() {
         }
         
         console.log('DEBUG - CRITICAL - Presence sync END:', {
-          playerCount: sortedPlayers.length,
-          phase: gamePhase
+          finalHostId: hostId,
+          originalHostId,
+          originalHostIdRef: originalHostIdRef.current,
+          playerId,
+          gamePhase
         });
       })
       .on('broadcast', { event: 'remove_player' }, ({ payload }) => {
@@ -974,8 +743,7 @@ export default function Room() {
           currentPhase: gamePhase,
           newPhase: payload.phase,
           hostId,
-          isHost: playerId === hostId,
-          fromHostId: payload.fromHostId // Log received fromHostId
+          isHost: playerId === hostId
         });
         
         // Save any assignments that came with the phase change
@@ -984,7 +752,7 @@ export default function Room() {
           setPlayerAssignments(payload.assignments);
           
           // Find my assigned player directly from players array
-          const myAssignment = payload.assignments.find((a: PlayerAssignment) => a.playerId === playerId);
+          const myAssignment = payload.assignments.find(a => a.playerId === playerId);
           if (myAssignment) {
             console.log('DEBUG - CRITICAL - My assignment data:', {
               myId: playerId,
@@ -999,40 +767,6 @@ export default function Room() {
               console.log('DEBUG - CRITICAL - Could not find assigned player with ID:', myAssignment.assignedPlayerId);
             }
           }
-        }
-        
-        // Update game phase
-        setGamePhase(payload.phase);
-        
-        // FIXED: Immediately track with correct status after phase change to ensure proper status
-        if (channelRef.current) {
-          // Set appropriate status based on new phase
-          let statusForPhase: 'ready' | 'writing' | 'guessing';
-          
-          if (payload.phase === 'description') {
-            statusForPhase = 'writing'; // Always start as writing in description phase
-          } else if (payload.phase === 'guessing') {
-            statusForPhase = 'guessing'; // Always start as guessing in guessing phase
-          } else {
-            statusForPhase = 'ready'; // Default to ready for other phases
-          }
-          
-          // Get current seat number if available
-          const currentPlayerFromState = players.find(p => p.id === playerId); // Renamed to avoid conflict
-          const seatNumber = currentPlayerFromState?.seatNumber;
-          
-          // Track with correct status for the new phase
-          channelRef.current.track({
-            id: playerId,
-            name: username,
-            joinedAt: Date.now(),
-            seatNumber,
-            status: statusForPhase
-          }).then(() => {
-            console.log(`DEBUG - CRITICAL - Updated status to ${statusForPhase} after phase change to ${payload.phase}`);
-          }).catch((err: Error) => {
-            console.error('DEBUG - CRITICAL - Error updating status after phase change:', err);
-          });
         }
         
         // CRITICAL: Save the script when transitioning to reading phase
@@ -1068,75 +802,25 @@ export default function Room() {
         }
         
         // Validate player count if provided
-        // FIX: Refined emergency sync logic
-        const isHostProcessingOwnPhaseChange = playerId === hostId && payload.fromHostId === playerId;
-        if (payload.playerCount && 
-            players.length < payload.playerCount && 
-            !isHostProcessingOwnPhaseChange && // Don't run for host processing their own immediate phase change
-            channelRef.current) {
-          console.log('DEBUG - EMERGENCY_SYNC_CHECK - Condition MET (players.length < payload.playerCount AND not self-host):', {
-            localPlayerCount: players.length,
-            payloadPlayerCount: payload.playerCount,
-            isHostSelfProcessing: isHostProcessingOwnPhaseChange,
-            gamePhaseAtCheck1: gamePhase
+        if (payload.playerCount && players.length < payload.playerCount) {
+          console.log('DEBUG - CRITICAL - Player count mismatch during phase transition reception:', {
+            myPlayerCount: players.length,
+            broadcastPlayerCount: payload.playerCount,
+            difference: payload.playerCount - players.length
           });
           
-          // Simplified condition for triggering (original was > 1 difference)
-          // if (payload.playerCount - players.length > 0 && channelRef.current) { 
-          console.log('DEBUG - EMERGENCY_SYNC_TRIGGERED:', { 
-            difference: payload.playerCount - players.length,
-            isChannelRefCurrent: !!channelRef.current,
-            gamePhaseAtTrigger: gamePhase // This is the state variable, might be stale
-          });
-          
-          // FIX: Use payload.phase for status calculation to avoid using stale gamePhase state
-          const phaseForEmergencyStatus = payload.phase; 
-          const emergencyHasSubmitted = hasSubmitted; // Capture current hasSubmitted for description phase
-          const emergencySubmittedGuesses = submittedGuesses; // Capture for guessing phase
-
-          let statusForEmergency: 'ready' | 'writing' | 'guessing';
-          if (phaseForEmergencyStatus === 'description') {
-            // CRITICAL FIX: For description phase, always default to writing status at start
-            // This is the safest option since at game start no one has submitted yet
-            statusForEmergency = 'writing';
+          // If we have a significant player count mismatch during phase transition,
+          // trigger a presence sync to ensure consistency
+          if (payload.playerCount - players.length > 1 && channelRef.current) {
+            console.log('DEBUG - CRITICAL - Triggering emergency presence sync due to count mismatch');
             
-            // Extra safety check - log this decision in detail
-            console.log('DEBUG - CRITICAL - Emergency sync for description phase:', {
-              playerId,
-              hasSubmitted: emergencyHasSubmitted,
-              submittedPlayerIds: submittedPlayerIds.length,
-              statusDecision: statusForEmergency,
-              forceWriting: true
+            // Force a presence sync by refreshing our presence data
+            channelRef.current.track({ 
+              id: playerId, 
+              name: username,
+              joinedAt: Date.now()
             });
-          } else if (phaseForEmergencyStatus === 'guessing') {
-            statusForEmergency = !emergencySubmittedGuesses ? 'guessing' : 'ready';
-          } else {
-            statusForEmergency = 'ready';
           }
-          
-          console.log('DEBUG - EMERGENCY_SYNC_STATUS_CALC:', {
-              phaseUsedForCalc: phaseForEmergencyStatus,
-              hasSubmittedUsed: phaseForEmergencyStatus === 'description' ? emergencyHasSubmitted : 'N/A',
-              submittedGuessesUsed: phaseForEmergencyStatus === 'guessing' ? emergencySubmittedGuesses : 'N/A',
-              calculatedStatus: statusForEmergency
-          });
-          
-          channelRef.current.track({ 
-            id: playerId, 
-            name: username,
-            joinedAt: Date.now(),
-            status: statusForEmergency 
-          });
-          console.log('DEBUG - EMERGENCY_SYNC_TRACKED_STATUS:', statusForEmergency);
-          // }
-        } else {
-          console.log('DEBUG - EMERGENCY_SYNC_CHECK - Condition NOT MET or Host self-processing:', {
-            localPlayerCount: players.length,
-            payloadPlayerCount: payload.playerCount,
-            isHostSelfProcessing: isHostProcessingOwnPhaseChange,
-            conditionMet: payload.playerCount && players.length < payload.playerCount,
-            gamePhaseAtCheck1: gamePhase
-          });
         }
         
         // Preserve current host during phase transitions
@@ -1179,6 +863,9 @@ export default function Room() {
           }, 5000); // 5 seconds should be enough
         }
         
+        // Update game phase
+        setGamePhase(payload.phase);
+        
         // Ensure host is preserved across phase changes
         if (hostId && hostId !== currentHostId) {
           console.log('DEBUG - CRITICAL - Host changed during phase transition, restoring:', {
@@ -1193,34 +880,32 @@ export default function Room() {
         if (payload.phase === 'description') {
           // Reset submission state
           setHasSubmitted(false);
-          prevHasSubmittedRef.current = false; // Also reset the ref
           setSubmittedPlayerIds([]);
           setDescriptions([]);
           setDescription("");
 
-          // MVPv1 update: We no longer need to manage status since we show submission count instead
-          console.log('DEBUG - MVP1 - Entering description phase - using submittedPlayerIds for tracking');
+          // Update player status to writing
+          broadcastAndSyncPlayerStatus('writing');
         }
         else if (payload.phase === 'reading') {
-          // Nothing special needed for reading phase in MVPv1
-          console.log('DEBUG - MVP1 - Entering reading phase');
+          // Reset player status to ready for the reading phase
+          broadcastAndSyncPlayerStatus('ready');
         }
         else if (payload.phase === 'guessing') {
           // Reset guesses state
           setPlayerGuesses({});
           setSubmittedGuesses(false);
-          prevSubmittedGuessesRef.current = false; // Also reset the ref
           
-          // MVPv1 update: No need to track status for guessing phase
-          console.log('DEBUG - MVP1 - Entering guessing phase');
+          // Update player status to guessing for the guessing phase
+          broadcastAndSyncPlayerStatus('guessing');
         }
         else if (payload.phase === 'results') {
-          // MVPv1 update: No status changes needed
-          console.log('DEBUG - MVP1 - Entering results phase');
+          // Update player status back to ready for results phase
+          broadcastAndSyncPlayerStatus('ready');
         }
         else if (payload.phase === 'lobby') {
-          // MVPv1 update: No status changes needed
-          console.log('DEBUG - MVP1 - Entering lobby');
+          // Update player status to ready for lobby
+          broadcastAndSyncPlayerStatus('ready');
         }
         
         console.log('DEBUG - CRITICAL - Game phase change END:', {
@@ -1234,7 +919,7 @@ export default function Room() {
         dbg('rx', payload);
         console.log('DEBUG - CRITICAL - Received player status change:', payload);
         
-        // Enhanced validation for status updates with detailed logging
+        // Enhanced validation for status updates during description phase
         if (gamePhase === 'description') {
           // Only accept 'writing' or 'ready' if they have submitted
           const playerHasSubmitted = submittedPlayerIds.includes(payload.playerId);
@@ -1261,18 +946,6 @@ export default function Room() {
             }
             return; // Reject invalid status updates
           }
-        } else if (gamePhase === 'guessing') {
-          // Similar validation for guessing phase - only allow ready if guesses are submitted
-          // This would need actual tracking of who has submitted guesses
-          
-          // For demonstration - if we had a way to track submitted guesses, we could do:
-          /*
-          const playerHasSubmittedGuesses = guessSubmissions.includes(payload.playerId);
-          if (payload.status === 'ready' && !playerHasSubmittedGuesses) {
-            console.log('DEBUG - CRITICAL - Rejecting invalid ready status for player without submitted guesses:', payload.playerId);
-            return;
-          }
-          */
         }
         
         // Update the player's status in our local player list
@@ -1546,45 +1219,6 @@ export default function Room() {
           setGeneratedScript(payload.script);
         }
       })
-      .on('broadcast', { event: 'force_status_sync' }, ({ payload }) => {
-        console.log('DEBUG - CRITICAL - Received force status sync:', payload);
-        
-        // Only process if channel is available
-        if (!channelRef.current) {
-          console.error('DEBUG - CRITICAL - Channel not available for forced status sync');
-          return;
-        }
-
-        // If we're receiving a force sync for the description phase, immediately retrack with writing status
-        if (payload.phase === 'description' && payload.forcedStatus === 'writing') {
-          console.log('DEBUG - CRITICAL - Processing forced status sync to writing for description phase');
-          
-          // Get current player data
-          const currentPlayerFromState = players.find(p => p.id === playerId);
-          const seatNumber = currentPlayerFromState?.seatNumber;
-          
-          // Force track with writing status
-          channelRef.current.track({
-            id: playerId,
-            name: username,
-            joinedAt: Date.now(),
-            seatNumber,
-            status: 'writing' // Force writing status per host instruction
-          }).then(() => {
-            console.log('DEBUG - CRITICAL - Successfully force tracked writing status');
-            
-            // Also update local state
-            setPlayers(prevPlayers => 
-              prevPlayers.map(player => ({
-                ...player,
-                status: player.id === playerId ? 'writing' : player.status
-              }))
-            );
-          }).catch((err: Error) => {
-            console.error('DEBUG - CRITICAL - Error force tracking status:', err);
-          });
-        }
-      })
       .subscribe(async (status) => {
         console.log('DEBUG - Channel status:', status);
         
@@ -1602,15 +1236,13 @@ export default function Room() {
             isReconnecting
           });
           
-          // FIXED: Initial track() without status to prevent early 'ready' status
+          // Track presence
           await channel.track({ 
             id: playerId, 
             name: username,
-            joinedAt: Date.now()
-            // No status field - will be set properly after phase information is received
+            joinedAt: Date.now(),
+            status: gamePhase === 'guessing' ? 'guessing' : 'ready'
           });
-          
-          console.log('DEBUG - CRITICAL - Initial presence track without status');
           
           // Assign seat number in database
           await assignPlayerSeatNumber();
@@ -1688,14 +1320,10 @@ export default function Room() {
           let seatNumber: number | undefined;
           const currentPlayer = players.find(p => p.id === playerId);
           
-          if (currentPlayer) {
-            // Use the player's current seat number from state if available
-            if (currentPlayer.seatNumber !== undefined) {
-              seatNumber = currentPlayer.seatNumber;
-            }
-          }
-          
-          if (seatNumber === undefined) {
+          if (currentPlayer?.seatNumber !== undefined) {
+            seatNumber = currentPlayer.seatNumber;
+            console.log('DEBUG - CRITICAL - Using seat number from player state:', seatNumber);
+          } else {
             // Only query DB if not in state
             const { data, error } = await supa
               .from('players')
@@ -1710,16 +1338,14 @@ export default function Room() {
             }
           }
           
-          // FIXED: Removed status from periodic ping to prevent accidental overwrites
-          // Re-track presence to keep connection alive WITHOUT status
+          // Re-track presence to keep connection alive
           await channelRef.current.track({ 
             id: playerId, 
             name: username,
             joinedAt: Date.now(),
             seatNumber
-            // No status field - status will only be modified by explicit broadcasts
           });
-          console.log('DEBUG - CRITICAL - Sent presence ping with seat number:', seatNumber, '(no status)');
+          console.log('DEBUG - CRITICAL - Sent presence ping with seat number:', seatNumber);
         } catch (err) {
           console.error('DEBUG - CRITICAL - Error sending presence ping:', err);
           
@@ -1892,7 +1518,6 @@ export default function Room() {
             preserveHost: true,
             preservedHostId: hostId,
             playerCount: players.length,
-            fromHostId: playerId, // Added fromHostId
             timestamp: Date.now()
           }
         });
@@ -1968,8 +1593,7 @@ export default function Room() {
 
       // In handleSubmitDescription, before updating own status
       dbg('ui-trigger', { event: 'broadcastAndSyncPlayerStatus', requestedStatus: 'ready', gamePhase });
-      // Status update moved to useEffect
-      // await broadcastAndSyncPlayerStatus('ready');
+      await broadcastAndSyncPlayerStatus('ready');
 
       console.log('DEBUG - Description submitted successfully');
       
@@ -1991,6 +1615,9 @@ export default function Room() {
               isRetry: true
             }
           });
+          
+          // Retry status update as well
+          setTimeout(() => broadcastAndSyncPlayerStatus('ready'), 200);
         }
       }, 2000);
       
@@ -2011,6 +1638,9 @@ export default function Room() {
               isEmergencyRetry: true
             }
           });
+          
+          // Force status update
+          broadcastAndSyncPlayerStatus('ready');
         }
       }, 5000);
 
@@ -2259,7 +1889,7 @@ export default function Room() {
     
     // Listen for script requests
     const channel = channelRef.current;
-    const scriptRequestHandler = channel.on('broadcast', { event: 'request_script' }, ({ payload }: { payload: { requestingPlayerId: string, requestingPlayerName: string, urgent?: boolean, timestamp: number } }) => {
+    const scriptRequestHandler = channel.on('broadcast', { event: 'request_script' }, ({ payload }) => {
       handleScriptRequest(payload);
     });
     
@@ -2277,7 +1907,7 @@ export default function Room() {
     if (!channelRef.current) return;
     
     const channel = channelRef.current;
-    const scriptResponseHandler = channel.on('broadcast', { event: 'script_response' }, ({ payload }: { payload: { script?: string, forPlayerId?: string } }) => {
+    const scriptResponseHandler = channel.on('broadcast', { event: 'script_response' }, ({ payload }) => {
       // Only process if this response is for me or broadcast to all
       if (!payload.forPlayerId || payload.forPlayerId === playerId) {
         if (payload.script && !generatedScript) {
@@ -2379,7 +2009,6 @@ export default function Room() {
             preserveHost: true,
             preservedHostId: originalHostIdRef.current,
             playerCount: players.length,
-            fromHostId: playerId, // Added fromHostId
             timestamp: Date.now()
           }
         });
@@ -2391,8 +2020,7 @@ export default function Room() {
         
         // In handleFinishReading, before updating own status
         dbg('ui-trigger', { event: 'broadcastAndSyncPlayerStatus', requestedStatus: 'guessing', gamePhase });
-        // Status update moved to useEffect that watches gamePhase
-        // broadcastAndSyncPlayerStatus('guessing');
+        broadcastAndSyncPlayerStatus('guessing');
       } catch (error) {
         console.error('ERROR - Failed to update phase:', error);
       }
@@ -2453,8 +2081,8 @@ export default function Room() {
       preservingHostRef.current = true;
       console.log('DEBUG - CRITICAL - Setting preservation flag during guess submission');
       
-      // First update player status to 'ready' - Moved to useEffect
-      // await broadcastAndSyncPlayerStatus('ready');
+      // First update player status to 'ready'
+      await broadcastAndSyncPlayerStatus('ready');
       
       // If this is the original host, force broadcast host update before continuing
       if (playerId === originalHostIdRef.current) {
@@ -2561,24 +2189,19 @@ export default function Room() {
       setAssignedPlayer(null);
       setDescription("");
       setHasSubmitted(false);
-      prevHasSubmittedRef.current = false; // Reset ref
       setDescriptions([]);
       setSubmittedPlayerIds([]);
       setGeneratedScript("");
       setCurrentLineIndex(0);
       setPlayerGuesses({});
       setSubmittedGuesses(false);
-      prevSubmittedGuessesRef.current = false; // Reset ref
       setAllGuessResults({});
-      setHasVoted(false);
-      prevHasVotedRef.current = false; // Reset ref
       
       // Update player status but keep host status intact
       channelRef.current.track({ 
         id: playerId, 
         name: username,
-        joinedAt: Date.now(),
-        status: 'ready'  // Always 'ready' status when starting new game
+        joinedAt: Date.now()
       });
       
       // Schedule a reset of the preservation flag
@@ -2881,10 +2504,9 @@ export default function Room() {
             preserveHost: true,
             preservedHostId: originalHostIdRef.current,
             playerCount: players.length,
-            scores: playerScores, // This should be 'scores' from the calculated scores above
+            scores: playerScores,
             bestConceptWinner: bestConceptWinnerId,
             bestDeliveryWinner: bestDeliveryWinnerId,
-            fromHostId: playerId, // Added fromHostId
             timestamp: Date.now()
           }
         });
@@ -2954,11 +2576,7 @@ export default function Room() {
       
       // In handleSubmitVotes, before updating own status
       dbg('ui-trigger', { event: 'broadcastAndSyncPlayerStatus', requestedStatus: 'ready', gamePhase });
-      // Status update moved to useEffect
-      // await broadcastAndSyncPlayerStatus('ready');
-      
-      // Set hasVoted to trigger the useEffect
-      setHasVoted(true);
+      await broadcastAndSyncPlayerStatus('ready');
       
       // Original host should check if all players are ready
       if (playerId === originalHostIdRef.current) {
@@ -3016,6 +2634,8 @@ export default function Room() {
         }, 2000);
       }
       
+      setHasVoted(true);
+      
     } catch (error) {
       console.error('DEBUG - CRITICAL - Error submitting votes:', error);
       preservingHostRef.current = false; // Reset on error
@@ -3024,11 +2644,6 @@ export default function Room() {
 
   // Add a tracking function to keep player counts in sync
   const broadcastAndSyncPlayerStatus = async (status: 'ready' | 'writing' | 'guessing') => {
-    // MVPv1 - Status icons removed: This function is kept for reference but no longer used
-    // Since we've removed real-time status icons, we don't need to broadcast status changes
-    // The submittedPlayerIds array is now the single source of truth for submission status
-    
-    /*
     dbg('emit', { playerId, newStatus: status, gamePhase });
     console.log('DEBUG - CRITICAL - Broadcasting player status:', {
       myId: playerId,
@@ -3038,65 +2653,24 @@ export default function Room() {
       hasSubmitted: status === 'ready' && gamePhase === 'description' ? hasSubmitted : 'n/a'
     });
     
-    // CRITICAL FIX: Special handling for description phase
+    // Enhanced validation for status changes based on game phase
     if (gamePhase === 'description') {
-      // If we're in description phase and requesting 'writing' status, always allow it
-      if (status === 'writing') {
-        console.log('DEBUG - CRITICAL - Enforcing writing status in description phase');
-        // Proceed with broadcast
-      }
-      // If requesting 'ready' status, only allow if submitted
-      else if (status === 'ready') {
-        const isInSubmittedIds = submittedPlayerIds.includes(playerId);
-        if (!isInSubmittedIds) {
-          console.log('DEBUG - CRITICAL - Blocking invalid ready status in description phase - not submitted');
-          return;
-        }
-      }
-    }
-    
-    // Validate requested status against current game state
-    const correctStatus = determineCorrectStatus(gamePhase, hasSubmitted, submittedGuesses, hasVoted);
-    
-    // If the status being requested doesn't match what our helper thinks is correct,
-    // log a warning but proceed if it represents valid progress
-    if (status !== correctStatus) {
-      // If trying to mark as ready but helper disagrees, validate carefully
-      if (status === 'ready' && correctStatus !== 'ready') {
-        console.log('DEBUG - CRITICAL - Requested ready status conflicts with determined status:', {
-          requested: status,
-          determined: correctStatus,
-          gamePhase,
-          hasSubmitted,
-          submittedGuesses,
-          isInSubmittedIds: submittedPlayerIds.includes(playerId)
-        });
-        
-        // Check if this is valid based on game phase
-        if (gamePhase === 'description') {
-          // CRITICAL FIX: Extra validation for description phase
-          // Only allow ready status if player is in submittedPlayerIds
-          const isInSubmittedIds = submittedPlayerIds.includes(playerId);
-          if (!isInSubmittedIds) {
-            console.log('DEBUG - CRITICAL - Preventing invalid ready status - player not in submittedPlayerIds');
-            return; // Don't allow ready status without presence in submittedPlayerIds
-          }
-          
-          if (!hasSubmitted) {
-            console.log('DEBUG - CRITICAL - Warning: hasSubmitted flag doesn\'t match submittedPlayerIds');
-            // Still proceed if in submittedPlayerIds even if hasSubmitted is false - submittedPlayerIds is authoritative
-          }
-        }
-        else if (gamePhase === 'guessing' && !submittedGuesses) {
-          console.log('DEBUG - CRITICAL - Preventing invalid ready status in guessing phase without submission');
-          return; // Don't allow ready status without submission
-        }
+      // In description phase, only allow 'ready' if player has submitted
+      if (status === 'ready' && !hasSubmitted) {
+        console.log('DEBUG - CRITICAL - Preventing invalid ready status in description phase without submission');
+        return; // Don't allow ready status without submission
       }
       
-      // If trying to downgrade from ready to writing/guessing, let it happen for explicit broadcasts
-      if (correctStatus === 'ready' && (status === 'writing' || status === 'guessing')) {
-        console.log('DEBUG - CRITICAL - Allowing explicit downgrade from ready to', status);
-        // Proceed with broadcast
+      // Default status for description phase should be 'writing' if not ready
+      if (status !== 'ready') {
+        status = 'writing';
+      }
+    } 
+    else if (gamePhase === 'guessing') {
+      // In guessing phase, only allow 'ready' if player has submitted guesses
+      if (status === 'ready' && !submittedGuesses) {
+        console.log('DEBUG - CRITICAL - Correcting status in guessing phase');
+        status = 'guessing'; // Force correct status
       }
     }
     
@@ -3185,30 +2759,6 @@ export default function Room() {
           }).catch((err: Error) => console.error('Status error retry failed:', err));
         }
       }, 500);
-    }
-    */
-
-    // Just update players' status in the local state for now
-    setPlayers(prevPlayers => 
-      prevPlayers.map(player => {
-        if (player.id === playerId) {
-          return { ...player, status };
-        }
-        return player;
-      })
-    );
-    
-    // If we're in the description phase and setting status to ready,
-    // we should also tell other players we've submitted
-    if (gamePhase === 'description' && status === 'ready' && channelRef.current) {
-      // This broadcast will update the counter on all clients
-      channelRef.current.send({
-        type: 'broadcast',
-        event: 'submit_description',
-        payload: {
-          playerId
-        }
-      }).catch((err: Error) => console.error('Error broadcasting submission:', err));
     }
   };
 
@@ -3574,11 +3124,6 @@ export default function Room() {
               Write a character description for:
             </h2>
             
-            {/* Add submission counter */}
-            <div className="mb-4 text-center">
-              <strong>{submittedPlayerIds.length} of {players.length}</strong> players have submitted
-            </div>
-            
             {renderDescriptionPhase()}
           </div>
         </div>
@@ -3602,21 +3147,23 @@ export default function Room() {
                     )}
                   </div>
                   
-                  {submittedPlayerIds.includes(player.id) ? (
-                    <div className="flex items-center text-green-600 bg-green-50 px-2 py-1 rounded">
-                      <svg className="w-5 h-5 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                      </svg>
-                      <span className="text-sm font-medium">Submitted</span>
-                    </div>
-                  ) : (
-                    <div className="flex items-center text-amber-600 bg-amber-50 px-2 py-1 rounded">
-                      <svg className="w-5 h-5 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-                      </svg>
-                      <span className="text-sm font-medium">Pending</span>
-                    </div>
-                  )}
+                  <div className="flex items-center">
+                    {player.status === 'ready' ? (
+                      <div className="flex items-center text-green-600 bg-green-50 px-2 py-1 rounded">
+                        <svg className="w-5 h-5 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                        </svg>
+                        <span className="text-sm font-medium">Ready</span>
+                      </div>
+                    ) : (
+                      <div className="flex items-center text-amber-600 bg-amber-50 px-2 py-1 rounded">
+                        <svg className="w-5 h-5 mr-1 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                        </svg>
+                        <span className="text-sm font-medium">Writing</span>
+                      </div>
+                    )}
+                  </div>
                 </div>
               ))}
             </div>
@@ -3708,11 +3255,6 @@ export default function Room() {
           <p className="text-gray-700 mb-6 text-center">
             Vote for your favorite performances and guess who wrote your character.
           </p>
-          
-          {/* Add submission counter */}
-          <div className="mb-4 text-center">
-            <strong>{players.filter(p => p.status === 'ready').length} of {players.length}</strong> players have submitted
-          </div>
           
           {/* Section A: Who wrote your description? */}
           <div className="mb-8 bg-blue-50 rounded-lg p-6 border-2 border-blue-100">
@@ -3887,11 +3429,11 @@ export default function Room() {
                   <div className="text-xs text-center mt-1 text-blue-600">You</div>
                 )}
                 <div className={`mt-2 text-center text-sm px-2 py-1 rounded-full 
-                  ${player.status === 'ready'
+                  ${player.status === 'ready' 
                     ? 'bg-green-100 text-green-800' 
                     : 'bg-amber-100 text-amber-800'}`}
                 >
-                  {player.status === 'ready' ? 'Submitted' : 'Pending'}
+                  {player.status === 'ready' ? 'Ready' : 'Voting'}
                 </div>
               </div>
             ))}
@@ -4220,13 +3762,12 @@ export default function Room() {
       {gamePhase === 'lobby' && (
         <>
           <h2 className="text-2xl font-semibold">Players</h2>
-          <div className="mb-4 text-center">
-            <strong>{players.length}</strong> players in the room
-          </div>
           <ul className="text-xl">
-            {stablePlayers.map((p) => (
+        {stablePlayers.map((p) => (
               <li key={p.id} className="py-1 flex items-center gap-2">
-                <span className="text-base">—</span>
+                <span className="text-base">
+                  {p.status === 'ready' ? '🟢' : '✏️'}
+                </span>
                 {p.name}
                 {p.id === hostId && (
                   <span className="text-sm px-2 py-0.5 bg-purple-500 text-white rounded-full">
@@ -4243,8 +3784,8 @@ export default function Room() {
                   </button>
                 )}
               </li>
-            ))}
-          </ul>
+        ))}
+      </ul>
         </>
       )}
     </main>
