@@ -101,6 +101,19 @@ export default function Room() {
   const prevSubmittedGuessesRef = useRef<boolean>(false);
   const prevHasVotedRef = useRef<boolean>(false);
   
+  // Add rate limiting for seat assignment to prevent API flooding
+  const lastSeatAssignmentRef = useRef<number>(0);
+  const seatAssignmentAttemptsRef = useRef<number>(0);
+  
+  // Track Play Again button clicks to prevent spam
+  const [playAgainDisabled, setPlayAgainDisabled] = useState(false);
+  
+  // Track player status submissions
+  const [submittingStatus, setSubmittingStatus] = useState(false);
+  
+  // Add a ref to track navigation state
+  const navigationInProgressRef = useRef(false);
+  
   // Effect to broadcast ready status after hasSubmitted changes - with improved state tracking
   useEffect(() => {
     console.log('DEBUG - CRITICAL - useEffect[hasSubmitted, gamePhase] triggered:', {
@@ -164,6 +177,29 @@ export default function Room() {
     }
   }, [gamePhase]);
 
+  // Add a specific effect to handle lobby to description transitions properly
+  useEffect(() => {
+    // Only focus on lobbby -> description transition
+    if (gamePhase === 'description') {
+      console.log('DEBUG - CRITICAL - Detected transition to description phase');
+      
+      // If we don't have assignments set, but there are players, request a recovery
+      setTimeout(() => {
+        if (playerAssignments.length === 0 && players.length > 0 && playerId !== hostId && channelRef.current) {
+          console.log('DEBUG - CRITICAL - Missing assignments in description phase, requesting recovery');
+          channelRef.current.send({
+            type: 'broadcast',
+            event: 'request_assignment_recovery',
+            payload: { 
+              requestingPlayerId: playerId,
+              timestamp: Date.now()
+            }
+          });
+        }
+      }, 2000); // Give time for normal flow to complete
+    }
+  }, [gamePhase, playerAssignments.length, players.length, playerId, hostId]);
+  
   // Set a function to safely update the original host ID
   const setOriginalHostSafely = (id: string | null) => {
     console.log('DEBUG - CRITICAL - Setting original host ID:', {
@@ -243,9 +279,86 @@ export default function Room() {
   useEffect(() => {
     return () => {
       if (typeof window === 'undefined') return;
+      
+      // Set navigation flag to prevent reconnection attempts during unmount
+      navigationInProgressRef.current = true;
+      
+      // Clean up all session storage keys related to this room
       sessionStorage.removeItem(`username_${slug}`);
+      sessionStorage.removeItem(`originalHost_${slug}`);
+      sessionStorage.removeItem(`autoRestore_${slug}`);
+      
+      console.log('DEBUG - CRITICAL - Cleanup on component unmount, navigation flag set');
     };
   }, [slug]);
+  
+  // Check for saved username from Play Again reload and auto-submit
+  useEffect(() => {
+    if (!slug || typeof window === 'undefined') return;
+    
+    try {
+      // Prevent multiple auto-submits by using a flag in session storage
+      const hasAutoRestoreFlag = sessionStorage.getItem(`autoRestore_${slug}`);
+      if (hasAutoRestoreFlag === 'true') {
+        console.log('DEBUG - PLAY_AGAIN - Already performed auto-restore for this session, skipping');
+        return;
+      }
+      
+      const playAgainUsername = sessionStorage.getItem(`username_${slug}`);
+      
+      if (playAgainUsername) {
+        console.log('DEBUG - PLAY_AGAIN - Found saved username after reload:', playAgainUsername);
+        
+        // Set flag to prevent multiple auto-restores
+        sessionStorage.setItem(`autoRestore_${slug}`, 'true');
+        
+        // Set both username states
+        setUsername(playAgainUsername);
+        setTempUsername(playAgainUsername);
+        
+        // Auto-submit after a short delay to allow component setup
+        setTimeout(() => {
+          console.log('DEBUG - PLAY_AGAIN - Auto-submitting username to rejoin room');
+          handleUsernameSubmit();
+          
+          // Remove the username from session storage to prevent future auto-restores
+          sessionStorage.removeItem(`username_${slug}`);
+        }, 500);
+      }
+    } catch (error) {
+      // Even on error, make sure we clean up to prevent infinite loops
+      console.error('DEBUG - PLAY_AGAIN - Error during auto-restore, cleaning up:', error);
+      sessionStorage.removeItem(`username_${slug}`);
+      sessionStorage.removeItem(`autoRestore_${slug}`);
+    }
+  }, [slug]);
+  
+  // Set assigned player when playerAssignments change
+  useEffect(() => {
+    if (playerAssignments.length > 0) {
+      const myAssignment = playerAssignments.find(
+        (assignment: PlayerAssignment) => assignment.playerId === playerId
+      );
+      
+      console.log('DEBUG - CRITICAL - Current assignments:', {
+        myId: playerId,
+        assignedPlayer: assignedPlayer ? {id: assignedPlayer.id, name: assignedPlayer.name} : 'none',
+        hasMyAssignment: !!assignedPlayer,
+        gamePhase,
+        allAssignments: playerAssignments.length,
+        myAssignmentFound: !!myAssignment
+      });
+      
+      // If we have an assignment but no assigned player, try to set it
+      if (myAssignment && !assignedPlayer && players.length > 0) {
+        const foundPlayer = players.find(p => p.id === myAssignment.assignedPlayerId);
+        if (foundPlayer) {
+          console.log('DEBUG - CRITICAL - Setting assigned player from effect:', foundPlayer.name);
+          setAssignedPlayer(foundPlayer);
+        }
+      }
+    }
+  }, [assignedPlayer, playerAssignments, playerId, gamePhase, players]);
 
   // Fetch or initialize room state from Supabase
   useEffect(() => {
@@ -390,6 +503,12 @@ export default function Room() {
 
   // Improve the channel reconnection handler
   const handleChannelReconnect = async () => {
+    // Skip reconnection if we're in the process of navigating away
+    if (navigationInProgressRef.current) {
+      console.log('DEBUG - CRITICAL - Skipping reconnection during navigation');
+      return;
+    }
+    
     console.log('DEBUG - CRITICAL - Channel reconnection triggered:', {
       playerId,
       username,
@@ -401,8 +520,13 @@ export default function Room() {
     preservingHostRef.current = false;
     console.log('DEBUG - CRITICAL - Reset preservation flag after channel reconnection');
     
-    // Attempt to rejoin with the same player ID and state
-    if (channelRef.current) {
+    // Check if channel exists and is ready
+    if (!channelRef.current) {
+      console.error('DEBUG - CRITICAL - Channel not initialized during reconnect');
+      return;
+    }
+
+    try {
       console.log('DEBUG - CRITICAL - Reconnecting with gamePhase:', gamePhase);
       
       // Get seat number from local state if available
@@ -480,6 +604,13 @@ export default function Room() {
           }, 1000);
         }
       }
+    } catch (error) {
+      console.error('DEBUG - CRITICAL - Error during channel reconnection:', error);
+      // Attempt to reinitialize the channel if it failed
+      if (!channelRef.current) {
+        console.log('DEBUG - CRITICAL - Attempting to reinitialize channel after failed reconnect');
+        initializeChannel();
+      }
     }
   };
 
@@ -527,92 +658,134 @@ export default function Room() {
 
   // Add function to assign player seat number
   const assignPlayerSeatNumber = async () => {
-    if (!slug || !playerId || !username) return;
+    // Rate limiting: Only allow one call every 2 seconds, and max 5 attempts
+    const now = Date.now();
+    if (now - lastSeatAssignmentRef.current < 2000) {
+      console.log('DEBUG - PLAY_AGAIN - Rate limiting seat assignment, too frequent');
+      return;
+    }
+    
+    // Track attempts to prevent infinite loops
+    seatAssignmentAttemptsRef.current += 1;
+    if (seatAssignmentAttemptsRef.current > 5) {
+      console.log('DEBUG - PLAY_AGAIN - Too many seat assignment attempts, stopping');
+      return;
+    }
+    
+    // Update timestamp for rate limiting
+    lastSeatAssignmentRef.current = now;
     
     try {
-      console.log('DEBUG - CRITICAL - Assigning seat number for player:', { playerId, room: slug });
-      
-      // First check if player already has a seat number
-      const { data: existingPlayer, error: checkError } = await supa
-        .from('players')
-        .select('seat_number')
-        .eq('player_id', playerId)
-        .eq('room_code', slug)
-        .single();
-      
-      // If player already exists, use their existing seat number
-      if (existingPlayer && existingPlayer.seat_number) {
-        console.log('DEBUG - CRITICAL - Player already has seat number:', existingPlayer.seat_number);
+      // Skip if already has a seat number
+      const existingPlayer = players.find(p => p.id === playerId);
+      if (existingPlayer?.seatNumber) {
+        console.log('DEBUG - CRITICAL - Player already has seat number:', existingPlayer.seatNumber);
         
-        // Update presence with existing seat number (NO STATUS FIELD)
+        // Track presence with seat number to ensure it's propagated to other clients
         if (channelRef.current) {
           await channelRef.current.track({ 
             id: playerId, 
             name: username,
             joinedAt: Date.now(),
-            seatNumber: existingPlayer.seat_number
-            // STATUS REMOVED: Let phase_change handler or presence sync on other clients determine initial status
+            seatNumber: existingPlayer.seatNumber,
+            // STATUS REMOVED: Let phase_change handler or presence sync on other clients determine correct status
           });
           
-          console.log('DEBUG - CRITICAL - Updated presence with existing seat number (NO STATUS):', existingPlayer.seat_number);
+          console.log('DEBUG - CRITICAL - Re-tracked presence with existing seat number:', existingPlayer.seatNumber);
         }
+        
         return;
       }
       
-      // Player doesn't exist, so get next available seat number
-      const { data: maxSeatData, error: maxSeatError } = await supa
+      console.log('DEBUG - CRITICAL - Assigning seat number for player:', {
+        playerId,
+        playerName: username,
+        hasExistingSeatNumber: !!existingPlayer?.seatNumber
+      });
+      
+      // Check if player already exists in the database
+      let { data: existingPlayerData, error } = await supa
         .from('players')
         .select('seat_number')
+        .eq('player_id', playerId)
         .eq('room_code', slug)
-        .order('seat_number', { ascending: false })
-        .limit(1);
+        .maybeSingle();
+
+      if (error && error.code !== 'PGRST116') {
+        console.error('DEBUG - CRITICAL - Error checking for existing player:', error);
+      }
       
-      // Calculate next seat number (1 if no players yet, or max+1)
-      const nextSeatNumber = maxSeatData && maxSeatData.length > 0 
-        ? (maxSeatData[0].seat_number + 1) 
-        : 1;
+      if (existingPlayerData?.seat_number) {
+        console.log('DEBUG - CRITICAL - Fetched seat number from database:', existingPlayerData.seat_number);
+        
+        // Track presence with existing seat number
+        if (channelRef.current) {
+          await channelRef.current.track({ 
+            id: playerId, 
+            name: username,
+            joinedAt: Date.now(),
+            seatNumber: existingPlayerData.seat_number,
+            // STATUS REMOVED: Let phase_change handler or presence sync on other clients determine correct status
+          });
+          
+          console.log('DEBUG - CRITICAL - Sent presence ping with seat number:', existingPlayerData.seat_number, '(no status)');
+        }
+        
+        return;
+      }
+      
+      // Find the next available seat number
+      const usedSeatNumbers = players
+        .filter(p => p.seatNumber !== undefined)
+        .map(p => p.seatNumber as number);
+      
+      // Start from seat 1 and find first available
+      let nextSeatNumber = 1;
+      while (usedSeatNumbers.includes(nextSeatNumber)) {
+        nextSeatNumber++;
+      }
       
       console.log('DEBUG - CRITICAL - Next seat number:', nextSeatNumber);
-
-      // Fetch current room phase to set a more accurate initial DB status
-      let dbStatusToInsert: 'ready' | 'writing' | 'guessing' = 'ready'; // Default
+      
+      // Determine the correct starting status based on current game phase
+      let dbStatusToInsert: 'ready' | 'writing' | 'guessing' = 'ready';
+      
       try {
+        // Fetch current room phase from DB
         const { data: roomData, error: roomError } = await supa
           .from('rooms')
           .select('phase')
           .eq('room_code', slug)
           .single();
-
+          
         if (roomError) {
-          console.error('DEBUG - CRITICAL - Error fetching room phase for DB insert in assignPlayerSeatNumber:', roomError);
-          // Keep default 'ready' in case of error
-        } else if (roomData && roomData.phase) {
+          console.error('DEBUG - CRITICAL - Error fetching room phase:', roomError);
+        } else if (roomData?.phase) {
           console.log('DEBUG - CRITICAL - Fetched room phase for DB status in assignPlayerSeatNumber:', roomData.phase);
+          
+          // Set initial status based on room phase
           if (roomData.phase === 'description') {
             dbStatusToInsert = 'writing';
           } else if (roomData.phase === 'guessing') {
             dbStatusToInsert = 'guessing';
-          } // 'lobby', 'reading', 'results' will use 'ready' by default
-        } else {
-          console.log('DEBUG - CRITICAL - No room data/phase found for DB status in assignPlayerSeatNumber, defaulting to ready');
+          } else {
+            dbStatusToInsert = 'ready';
+          }
         }
-      } catch (fetchPhaseError) {
-        console.error('DEBUG - CRITICAL - Exception fetching room phase for DB insert in assignPlayerSeatNumber:', fetchPhaseError);
-        // Keep default 'ready' in case of exception
+      } catch (phaseErr) {
+        console.error('DEBUG - CRITICAL - Error fetching room phase:', phaseErr);
       }
       
-      // Simple insert without onConflict, using determined DB status
+      // Insert player record with seat number
       const { error: insertError } = await supa
         .from('players')
-        .insert([
-          { 
-            player_id: playerId, 
-            room_code: slug, 
-            seat_number: nextSeatNumber,
-            name: username,
-            status: dbStatusToInsert // Use the determined status for DB
-          }
-        ]);
+        .upsert({
+          player_id: playerId,
+          room_code: slug, 
+          seat_number: nextSeatNumber,
+          name: username,
+          status: dbStatusToInsert // Use the determined status for DB
+        });
       
       if (insertError) {
         console.error('DEBUG - CRITICAL - Error inserting player:', insertError);
@@ -640,19 +813,30 @@ export default function Room() {
 
   // Modify initializeChannel to use the stable sorting
   const initializeChannel = () => {
-    if (!slug || !username || typeof window === 'undefined') {
-      console.log('DEBUG - Cannot initialize channel, missing parameters');
-      return;
+    if (!slug || !username || !supa) {
+      console.log('DEBUG - Cannot initialize channel, missing essentials:', {
+        hasSlug: !!slug,
+        hasUsername: !!username,
+        hasSupabase: !!supa
+      });
+      return null;
     }
+    
+    // Add a flag to prevent multiple initializations within a short period
+    const lastInit = window.sessionStorage.getItem(`lastChannelInit_${slug}`);
+    const now = Date.now();
+    if (lastInit && (now - parseInt(lastInit, 10)) < 2000) {
+      console.log('DEBUG - PLAY_AGAIN - Throttling channel initialization');
+      return null;
+    }
+    
+    // Update last initialization timestamp
+    window.sessionStorage.setItem(`lastChannelInit_${slug}`, now.toString());
     
     console.log('DEBUG - CRITICAL - Initializing channel:', { 
       slug, 
       username, 
-      playerId, 
-      hostId,
-      originalHostId,
-      originalHostIdRef: originalHostIdRef.current,
-      isReconnecting
+      playerId
     });
     
     // Create a new channel
@@ -833,9 +1017,13 @@ export default function Room() {
         console.log('DEBUG - CRITICAL - Host presence check:', {
           refOriginalHostPresent,
           originalHost: originalHostIdRef.current?.slice(0, 8),
-          currentHost: hostId?.slice(0, 8)
+          currentHost: hostId?.slice(0, 8),
+          preservingHost: preservingHostRef.current,
+          gamePhase
         });
         
+        // Skip host reassignment completely if preservation flag is set
+        if (!preservingHostRef.current) {
         if (refOriginalHostPresent) {
           // If ref original host exists, they should ALWAYS be the host
           if (hostId !== originalHostIdRef.current) {
@@ -874,7 +1062,7 @@ export default function Room() {
           const newHostId = sortedPlayers[0].id;
           
           console.log('DEBUG - CRITICAL - Setting new host (original host absent):', {
-            newHostId: newHostId.slice(0, 8),
+              newHostId: newHostId.slice(0, 8),
             iAmFirstPlayer: playerId === sortedPlayers[0].id
           });
           
@@ -900,6 +1088,9 @@ export default function Room() {
               console.error('DEBUG - Error sending host update:', err);
             }
           }
+          }
+        } else {
+          console.log('DEBUG - CRITICAL - Skipping host reassignment due to preservation flag in presence sync');
         }
         
         // Update assigned player if we have assignments (keeping this unchanged)
@@ -976,12 +1167,18 @@ export default function Room() {
           newPhase: payload.phase,
           hostId,
           isHost: playerId === hostId,
-          fromHostId: payload.fromHostId // Log received fromHostId
+          fromHostId: payload.fromHostId, // Log received fromHostId
+          receivedPayload: payload // Log the entire payload to diagnose issues
         });
         
         // Save any assignments that came with the phase change
         if (payload.phase === 'description' && payload.assignments) {
           // Save assignments
+          console.log('DEBUG - CRITICAL - Received assignments in game_phase_change:', {
+            assignmentsCount: payload.assignments.length,
+            myPlayerId: playerId,
+            players: players.map(p => ({id: p.id, name: p.name}))
+          });
           setPlayerAssignments(payload.assignments);
           
           // Find my assigned player directly from players array
@@ -998,12 +1195,47 @@ export default function Room() {
               setAssignedPlayer(foundPlayer);
             } else {
               console.log('DEBUG - CRITICAL - Could not find assigned player with ID:', myAssignment.assignedPlayerId);
+              
+              // Enhanced recovery for missing player
+              setTimeout(() => {
+                // Try again after a short delay - player list might update
+                const retryPlayer = players.find(p => p.id === myAssignment.assignedPlayerId);
+                if (retryPlayer) {
+                  console.log('DEBUG - CRITICAL - Found assigned player on retry:', retryPlayer.name);
+                  setAssignedPlayer(retryPlayer);
+                } else {
+                  // Request recovery from host if we still can't find our assignment
+                  console.log('DEBUG - CRITICAL - Requesting assignment recovery from host');
+                  if (channelRef.current) {
+                    channelRef.current.send({
+                      type: 'broadcast',
+                      event: 'request_assignment_recovery',
+                      payload: { 
+                        requestingPlayerId: playerId,
+                        timestamp: Date.now()
+                      }
+                    });
+                  }
+                }
+              }, 1000);
             }
+          } else {
+            console.log('DEBUG - CRITICAL - No assignment found for my player ID:', playerId);
           }
         }
         
-        // Update game phase
+        // Update game phase - Ensure this happens regardless of other conditions
+        console.log('DEBUG - CRITICAL - Updating game phase from', gamePhase, 'to', payload.phase);
         setGamePhase(payload.phase);
+        
+        // Add debugging for phase transition success
+                setTimeout(() => {
+          console.log('DEBUG - CRITICAL - Phase transition check:', {
+            requestedPhase: payload.phase,
+            currentPhase: gamePhase,
+            didUpdate: gamePhase === payload.phase
+          });
+        }, 500);
         
         // FIXED: Immediately track with correct status after phase change to ensure proper status
         if (channelRef.current) {
@@ -1014,7 +1246,7 @@ export default function Room() {
             statusForPhase = 'writing'; // Always start as writing in description phase
           } else if (payload.phase === 'guessing') {
             statusForPhase = 'guessing'; // Always start as guessing in guessing phase
-          } else {
+                  } else {
             statusForPhase = 'ready'; // Default to ready for other phases
           }
           
@@ -1048,7 +1280,7 @@ export default function Room() {
             console.log('DEBUG - CRITICAL - Missing script after phase change to reading, requesting immediately');
             
             // Small delay to ensure host has time to broadcast
-            setTimeout(() => {
+              setTimeout(() => {
               try {
                 channelRef.current.send({
                   type: 'broadcast',
@@ -1064,7 +1296,7 @@ export default function Room() {
               } catch (err) {
                 console.error('DEBUG - CRITICAL - Error requesting script after phase change:', err);
               }
-            }, 1000);
+              }, 1000);
           }
         }
         
@@ -1122,10 +1354,10 @@ export default function Room() {
               calculatedStatus: statusForEmergency
           });
           
-          channelRef.current.track({ 
-            id: playerId, 
-            name: username,
-            joinedAt: Date.now(),
+            channelRef.current.track({ 
+              id: playerId, 
+              name: username,
+              joinedAt: Date.now(),
             status: statusForEmergency 
           });
           console.log('DEBUG - EMERGENCY_SYNC_TRACKED_STATUS:', statusForEmergency);
@@ -1241,6 +1473,46 @@ export default function Room() {
         else if (payload.phase === 'lobby') {
           // MVPv1 update: No status changes needed
           console.log('DEBUG - MVP1 - Entering lobby');
+          
+          // Handle explicit play again transition
+          if (payload.isPlayAgain) {
+            console.log('DEBUG - CRITICAL - Processing lobby transition for Play Again');
+            
+            // Clear all game-related state for non-host players
+            if (playerId !== payload.fromPlayerId) {
+              setPlayerAssignments([]);
+              setAssignedPlayer(null);
+              setDescription("");
+              setDescriptions([]);
+              setGeneratedScript("");
+              setPlayerGuesses({});
+              setAllGuessResults({});
+              setPlayerVotes([]);
+              setPlayerScores({});
+              setBestConceptWinner(null);
+              setBestDeliveryWinner(null);
+              
+              // Reset state flags
+              setHasSubmitted(false);
+              setSubmittedGuesses(false);
+              setHasVoted(false);
+              
+              console.log('DEBUG - CRITICAL - Non-host player cleared game state for Play Again');
+            }
+            
+            // Set a longer preservation time for Play Again transitions
+            setTimeout(() => {
+              preservingHostRef.current = false;
+              console.log('DEBUG - CRITICAL - Extended host preservation period ended for Play Again');
+              
+              // Double-check host status
+              if (playerId === originalHostIdRef.current) {
+                ensureOriginalHostPreserved().catch(err => 
+                  console.error('DEBUG - CRITICAL - Error in timeout host preservation check:', err)
+                );
+              }
+            }, 7000); // Extended time for Play Again
+          }
         }
         
         console.log('DEBUG - CRITICAL - Game phase change END:', {
@@ -1445,7 +1717,7 @@ export default function Room() {
           
           // Clear session storage for this room
           try {
-            sessionStorage.removeItem(`username_${slug}`);
+          sessionStorage.removeItem(`username_${slug}`);
             sessionStorage.removeItem(`host_${slug}`);
             sessionStorage.removeItem(`originalHost_${slug}`);
           } catch (e) {
@@ -1583,6 +1855,169 @@ export default function Room() {
           });
         }
       })
+      .on('broadcast', { event: 'play_again' }, ({ payload }) => {
+        console.log('DEBUG - CRITICAL - Received play_again event:', {
+          initiatedBy: payload.initiatedBy,
+          originalHostId: payload.originalHostId,
+          myId: playerId,
+          isHostInitiated: playerId === payload.initiatedBy
+        });
+        
+        // Reset state for all players, not just non-hosts
+        setPlayerAssignments([]);
+        setAssignedPlayer(null);
+        setDescription("");
+        setDescriptions([]);
+        setGeneratedScript("");
+        setPlayerGuesses({});
+        setAllGuessResults({});
+        setPlayerVotes([]);
+        setPlayerScores({});
+        setBestConceptWinner(null);
+        setBestDeliveryWinner(null);
+        
+        // Reset state flags
+        setHasSubmitted(false);
+        setSubmittedGuesses(false);
+        setHasVoted(false);
+        
+        console.log('DEBUG - CRITICAL - Reset all game state for Play Again');
+        
+        // Update connection and channel state to ensure we're ready for the next game
+        if (channelRef.current) {
+          // Update own presence with seat number and ready status
+          const mySeatNumber = players.find(p => p.id === playerId)?.seatNumber || 1;
+          
+          try {
+            channelRef.current.track({ 
+              id: playerId, 
+              name: username,
+              joinedAt: Date.now(),
+              seatNumber: mySeatNumber,
+              status: 'ready'
+            });
+            console.log('DEBUG - CRITICAL - Updated own presence for play again with seat number:', mySeatNumber);
+          } catch (err) {
+            console.error('DEBUG - CRITICAL - Error updating presence in play_again handler:', err);
+          }
+        }
+      })
+      .on('broadcast', { event: 'reassign_seat_numbers' }, async ({ payload }) => {
+        console.log('DEBUG - CRITICAL - Received reassign_seat_numbers event:', payload);
+        
+        // Only proceed if not the initiator
+        if (playerId !== payload.initiatedBy) {
+          // Check if we already have a seat number
+          const currentSeatNumber = players.find(p => p.id === playerId)?.seatNumber;
+          
+          if (!currentSeatNumber) {
+            console.log('DEBUG - CRITICAL - Player needs to reassign seat number');
+            try {
+              await assignPlayerSeatNumber();
+            } catch (error) {
+              console.error('DEBUG - CRITICAL - Error reassigning seat number:', error);
+            }
+          } else {
+            console.log('DEBUG - CRITICAL - Player already has seat number:', currentSeatNumber);
+            
+            // Re-track presence with seat number to ensure consistency
+            if (channelRef.current) {
+              try {
+                await channelRef.current.track({ 
+                  id: playerId, 
+                  name: username,
+                  joinedAt: Date.now(),
+                  seatNumber: currentSeatNumber,
+                  status: 'ready'
+                });
+                
+                console.log('DEBUG - CRITICAL - Re-tracked presence with seat number:', currentSeatNumber);
+              } catch (error) {
+                console.error('DEBUG - CRITICAL - Error re-tracking presence with seat number:', error);
+              }
+            }
+          }
+        }
+      })
+      .on('broadcast', { event: 'host_correction' }, ({ payload }) => {
+        console.log('DEBUG - CRITICAL - Received host correction:', payload);
+        
+        // If this message is directed at me (I'm the incorrect host)
+        if (payload.incorrectHostId === playerId) {
+          console.log('DEBUG - CRITICAL - I am incorrectly set as host, correcting');
+          
+          // Reset local host state
+          setHostId(payload.hostId);
+          
+          // Re-track presence without host status
+          if (channelRef.current) {
+            // Get my current seat number
+            const mySeatNumber = players.find(p => p.id === playerId)?.seatNumber;
+            
+            channelRef.current.track({ 
+              id: playerId, 
+              name: username,
+              joinedAt: Date.now(),
+              seatNumber: mySeatNumber,
+              status: 'ready'
+            }).catch((err: Error) => console.error('DEBUG - Error correcting presence after host correction:', err));
+            
+            console.log('DEBUG - CRITICAL - Re-tracked presence after host correction');
+          }
+        }
+        
+        // Update host for everyone else as well to ensure consistency
+        if (payload.forcedUpdate) {
+          setHostId(payload.hostId);
+        }
+      })
+      .on('broadcast', { event: 'direct_script_update' }, ({ payload }) => {
+        console.log('DEBUG - CRITICAL - Received direct script update broadcast');
+        if (payload.script) {
+          console.log('DEBUG - CRITICAL - Setting script from direct script update broadcast');
+          setGeneratedScript(payload.script);
+        }
+      })
+      // Add event listener for play_again_reload
+      .on('broadcast', { event: 'play_again_reload' }, ({ payload }) => {
+        console.log('DEBUG - PLAY_AGAIN - Received reload signal:', {
+          initiatedBy: payload.initiatedBy,
+          originalHostId: payload.originalHostId,
+          myId: playerId,
+          timestamp: payload.timestamp
+        });
+        
+        // Store username in sessionStorage before reload
+        if (typeof window !== 'undefined') {
+          // Reset counters and flags to avoid issues after reload
+          sessionStorage.removeItem(`autoRestore_${slug}`);
+          sessionStorage.removeItem(`lastChannelInit_${slug}`);
+          seatAssignmentAttemptsRef.current = 0;
+          lastSeatAssignmentRef.current = 0;
+          
+          sessionStorage.setItem(`username_${slug}`, username);
+          
+          // Also save original host ID if available
+          if (payload.originalHostId) {
+            sessionStorage.setItem(`originalHost_${slug}`, payload.originalHostId);
+          }
+          
+          console.log('DEBUG - PLAY_AGAIN - Stored username and host info before reload');
+        }
+        
+        // Small delay to ensure all clients receive the message
+        // Different delays for initiator vs others to prevent conflicts
+        const delay = payload.initiatedBy === playerId ? 200 : 300 + Math.random() * 200;
+        
+        console.log(`DEBUG - PLAY_AGAIN - Will reload in ${delay}ms`);
+        
+        setTimeout(() => {
+          console.log('DEBUG - PLAY_AGAIN - Reloading page');
+          window.location.reload();
+        }, delay);
+      })
+      
+    // subscribe handles connection state
       .subscribe(async (status) => {
         console.log('DEBUG - Channel status:', status);
         
@@ -1612,6 +2047,67 @@ export default function Room() {
           
           // Assign seat number in database
           await assignPlayerSeatNumber();
+          
+          // ENHANCED RECOVERY: Check database for current game phase
+          try {
+            const { data: roomData, error: roomError } = await supa
+              .from('rooms')
+              .select('phase, current_host_id, original_host_id')
+              .eq('room_code', slug)
+              .maybeSingle();
+              
+            if (!roomError && roomData && roomData.phase) {
+              console.log('DEBUG - CRITICAL - Retrieved room phase from database:', {
+                dbPhase: roomData.phase,
+                currentPhase: gamePhase,
+                needsSync: roomData.phase !== gamePhase
+              });
+              
+              // If phases don't match, sync my state with server
+              if (roomData.phase !== gamePhase && roomData.phase !== 'lobby') {
+                console.log('DEBUG - CRITICAL - Phase mismatch on channel connect, syncing to', roomData.phase);
+                setGamePhase(roomData.phase);
+                
+                // If I'm the host, broadcast current phase to sync everyone
+                if (playerId === roomData.original_host_id || playerId === roomData.current_host_id) {
+                  console.log('DEBUG - CRITICAL - Host reconnected, broadcasting current phase');
+                  setTimeout(() => {
+                    if (channelRef.current) {
+                      channelRef.current.send({
+                        type: 'broadcast',
+                        event: 'game_phase_change',
+                        payload: { 
+                          phase: roomData.phase,
+                          preserveHost: true,
+                          preservedHostId: roomData.original_host_id,
+                          fromFunction: 'channelInit_recovery',
+                          timestamp: Date.now()
+                        }
+                      });
+                    }
+                  }, 2000);
+                }
+                // If I'm not the host but phase is description, try to request assignments
+                else if (roomData.phase === 'description') {
+                  console.log('DEBUG - CRITICAL - Non-host reconnected to description phase, requesting assignments');
+                  setTimeout(() => {
+                    if (channelRef.current) {
+                      channelRef.current.send({
+                        type: 'broadcast',
+                        event: 'request_assignment_recovery',
+                        payload: { 
+                          requestingPlayerId: playerId,
+                          timestamp: Date.now()
+                        }
+                      });
+                    }
+                  }, 2000);
+                }
+              }
+            }
+          } catch (dbError) {
+            console.error('DEBUG - CRITICAL - Error checking room phase on connection:', dbError);
+          }
           
           // Force host update if this is the original host
           if (originalHostId === playerId) {
@@ -1653,12 +2149,20 @@ export default function Room() {
             
             // Check host status
             if (originalHostId && originalHostId === playerId) {
-              ensureOriginalHostPreserved();
+              ensureOriginalHostPreserved().catch(err => 
+                console.error('DEBUG - CRITICAL - Error in channel reconnection host preservation check:', err)
+              );
             }
           }, 5000);
         } 
         else if (status === 'CHANNEL_ERROR') {
           console.log('DEBUG - Channel error, attempting reconnection...');
+          
+          // Skip reconnection if navigation is in progress
+          if (navigationInProgressRef.current) {
+            console.log('DEBUG - Skipping reconnection during navigation (CHANNEL_ERROR)');
+            return;
+          }
           
           // Only trigger reconnection if not already reconnecting
           if (!isReconnecting && connectionRetryCount < maxRetries) {
@@ -1671,6 +2175,12 @@ export default function Room() {
         else if (status === 'CLOSED' || status === 'TIMED_OUT') {
           console.log(`DEBUG - Channel ${status}, attempting reconnection...`);
           
+          // Skip reconnection if navigation is in progress
+          if (navigationInProgressRef.current) {
+            console.log(`DEBUG - Skipping reconnection during navigation (${status})`);
+            return;
+          }
+          
           // Only trigger reconnection if not already reconnecting
           if (!isReconnecting && connectionRetryCount < maxRetries) {
             handleChannelReconnect();
@@ -1680,6 +2190,12 @@ export default function Room() {
     
     // Schedule periodic presence pings to keep connection alive
     const pingInterval = setInterval(async () => {
+      // Skip if navigation is in progress
+      if (navigationInProgressRef.current) {
+        console.log('DEBUG - CRITICAL - Skipping presence ping during navigation');
+        return;
+      }
+      
       if (channelRef.current) {
         try {
           // Get current seat number if available in state
@@ -1722,7 +2238,7 @@ export default function Room() {
           console.error('DEBUG - CRITICAL - Error sending presence ping:', err);
           
           // If we encounter an error during ping, try to reconnect
-          if (!isReconnecting && connectionRetryCount < maxRetries) {
+          if (!navigationInProgressRef.current && !isReconnecting && connectionRetryCount < maxRetries) {
             handleChannelReconnect();
           }
         }
@@ -1784,6 +2300,12 @@ export default function Room() {
     
     // Setup reconnection retry for dropped connections
     reconnectionIntervalRef.current = setInterval(() => {
+      // Skip if navigation is in progress
+      if (navigationInProgressRef.current) {
+        console.log('DEBUG - Skipping reconnection check during navigation');
+        return;
+      }
+      
       if (!channelRef.current && !isReconnecting && connectionRetryCount < maxRetries) {
         console.log('DEBUG - Detected missing channel, initiating reconnection');
         handleChannelReconnect();
@@ -1801,7 +2323,7 @@ export default function Room() {
       
       if (cleanup) cleanup();
     };
-  }, [slug, username, playerId]); // Only depend on critical values
+  }, [slug, username, playerId, hostId]); // Only depend on critical values
 
   // Helper to check if a game is active
   const isActiveGame = (phase: GamePhase): boolean => {
@@ -2069,7 +2591,7 @@ export default function Room() {
           channelRef.current.send({
             type: 'broadcast',
             event: 'script_update',
-            payload: {
+            payload: { 
               script: data.script,
               fromHost: playerId,
               timestamp: Date.now()
@@ -2087,20 +2609,20 @@ export default function Room() {
           try {
             console.log('DEBUG - CRITICAL - Broadcasting phase change to reading');
             channelRef.current.send({
-              type: 'broadcast',
-              event: 'game_phase_change',
-              payload: {
-                phase: 'reading',
+            type: 'broadcast',
+            event: 'game_phase_change',
+            payload: { 
+              phase: 'reading',
                 script: data.script, // Include script in phase change too as fallback
                 timestamp: Date.now()
               }
             });
           } catch (broadcastErr) {
             console.error('DEBUG - CRITICAL - Error broadcasting phase change:', broadcastErr);
-          }
         }
-        
-        setGamePhase('reading');
+      }
+      
+      setGamePhase('reading');
       }, 500); // Short delay between broadcasts
       
     } catch (error) {
@@ -2155,13 +2677,14 @@ export default function Room() {
   const isOriginalHost = playerId === originalHostId;
 
   // Create function to safely check and restore the original host
-  const ensureOriginalHostPreserved = () => {
+  const ensureOriginalHostPreserved = async () => {
     console.log('DEBUG - CRITICAL - Running original host preservation check:', {
       originalHostIdRef: originalHostIdRef.current,
       originalHostId,
       hostId,
       playerId,
-      isOriginalHost: originalHostIdRef.current === playerId
+      isOriginalHost: originalHostIdRef.current === playerId,
+      gamePhase
     });
     
     // Only the original host can reassert themselves as host
@@ -2171,6 +2694,7 @@ export default function Room() {
       
       // Force broadcast to sync all clients
       if (channelRef.current) {
+        try {
         channelRef.current.send({
           type: 'broadcast',
           event: 'host_update',
@@ -2182,7 +2706,62 @@ export default function Room() {
             fromFunction: 'ensureOriginalHostPreserved_forced',
             timestamp: Date.now()
           }
-        }).catch((err: Error) => console.error('DEBUG - Error sending host restore:', err));
+          });
+          
+          console.log('DEBUG - CRITICAL - Sent forced host update from ensureOriginalHostPreserved');
+          
+          // Also ensure the DB has the original host ID
+          try {
+            const { error: updateError } = await supa
+              .from('rooms')
+              .update({ 
+                current_host_id: playerId,
+                original_host_id: playerId
+              })
+              .eq('room_code', slug);
+              
+            if (updateError) {
+              console.error('DEBUG - CRITICAL - Error updating host in DB:', updateError);
+            } else {
+              console.log('DEBUG - CRITICAL - Updated host in DB to original host');
+            }
+          } catch (dbError) {
+            console.error('DEBUG - CRITICAL - Exception updating host in DB:', dbError);
+          }
+        } catch (err) {
+          console.error('DEBUG - CRITICAL - Error sending host restore:', err);
+        }
+      }
+      
+      // Also check if other players think they're the host and correct them
+      const nonHostPlayers = players.filter(p => p.id !== playerId);
+      const incorrectHostPlayer = nonHostPlayers.find(p => p.id === hostId);
+      
+      if (incorrectHostPlayer) {
+        console.log('DEBUG - CRITICAL - Detected incorrect host:', incorrectHostPlayer.name);
+        
+        // Send a direct correction message
+        if (channelRef.current) {
+          try {
+            channelRef.current.send({
+              type: 'broadcast',
+              event: 'host_correction',
+              payload: { 
+                hostId: playerId,
+                originalHostId: playerId,
+                forcedUpdate: true,
+                fromPlayerId: playerId,
+                incorrectHostId: incorrectHostPlayer.id,
+                fromFunction: 'ensureOriginalHostPreserved_correction',
+                timestamp: Date.now()
+              }
+            });
+            
+            console.log('DEBUG - CRITICAL - Sent host correction message');
+          } catch (err) {
+            console.error('DEBUG - CRITICAL - Error sending host correction:', err);
+          }
+        }
       }
     }
   };
@@ -2195,7 +2774,9 @@ export default function Room() {
     
     // Check more frequently to ensure original host status
     const interval = setInterval(() => {
-      ensureOriginalHostPreserved();
+      ensureOriginalHostPreserved().catch(err => 
+        console.error('DEBUG - CRITICAL - Error in periodic host preservation check:', err)
+      );
     }, 2000); // Every 2 seconds
     
     return () => clearInterval(interval);
@@ -2512,91 +3093,98 @@ export default function Room() {
   };
 
   const handlePlayAgain = async () => {
-    // Only allow the original host to restart the game
-    if (!(playerId === originalHostId)) {
-      console.log('DEBUG - Non-original host attempted to restart game, ignoring');
+    // Prevent multiple rapid clicks
+    if (playAgainDisabled) {
+      console.log('DEBUG - PLAY_AGAIN - Button is disabled, ignoring click');
       return;
     }
     
+    // Disable button after click
+    setPlayAgainDisabled(true);
+    
+    console.log('DEBUG - PLAY_AGAIN - Starting Play Again with reload approach', {
+      playerId,
+      isHost,
+      isOriginalHost,
+      originalHostId,
+      players: players.length,
+      gamePhase
+    });
+    
     try {
+      // 1. Save username to sessionStorage for restoration after reload
+      if (typeof window !== 'undefined') {
+        // Reset auto-restore flag to allow a fresh restore after reload
+        sessionStorage.removeItem(`autoRestore_${slug}`);
+        sessionStorage.removeItem(`lastChannelInit_${slug}`);
+        seatAssignmentAttemptsRef.current = 0;
+        lastSeatAssignmentRef.current = 0;
+        
+        sessionStorage.setItem(`username_${slug}`, username);
+        
+        // Also save original host ID if available
+        if (originalHostId) {
+          sessionStorage.setItem(`originalHost_${slug}`, originalHostId);
+        }
+        console.log('DEBUG - PLAY_AGAIN - Stored username and host info in sessionStorage');
+      }
+      
       if (!channelRef.current) {
-        console.error('DEBUG - Channel not initialized');
+        console.error('DEBUG - PLAY_AGAIN - Channel not initialized');
+        setPlayAgainDisabled(false); // Re-enable button if error
         return;
       }
       
-      console.log('DEBUG - Play again initiated by original host:', {
-        hostId,
-        originalHostId,
-        playerId
-      });
+      console.log('DEBUG - PLAY_AGAIN - Broadcasting reload signal to all players');
       
-      // Set the preservation flag to prevent host reassignment
-      preservingHostRef.current = true;
-      
-      // Force all clients to recognize original host as the definitive host
+      // 2. Broadcast reload signal to all players
       await channelRef.current.send({
         type: 'broadcast',
-        event: 'host_update',
+        event: 'play_again_reload',
         payload: { 
-          hostId: originalHostId,
+          initiatedBy: playerId,
           originalHostId,
-          forcedUpdate: true,
-          fromPlayerId: playerId,
-          fromFunction: 'handlePlayAgain'
+          timestamp: Date.now()
         }
       });
       
-      // Reset back to lobby
-      await channelRef.current.send({
-        type: 'broadcast',
-        event: 'game_phase_change',
-        payload: { 
-          phase: 'lobby',
-          preserveHost: true,  // Signal to preserve the current host
-          preservedHostId: originalHostId // Explicitly include the original host ID to preserve
-        }
-      });
-      
-      // Reset states
-      setGamePhase('lobby');
-      setPlayerAssignments([]);
-      setAssignedPlayer(null);
-      setDescription("");
-      setHasSubmitted(false);
-      prevHasSubmittedRef.current = false; // Reset ref
-      setDescriptions([]);
-      setSubmittedPlayerIds([]);
-      setGuessSubmittedPlayerIds([]); // Reset guess submission tracker
-      setGeneratedScript("");
-      setCurrentLineIndex(0);
-      setPlayerGuesses({});
-      setSubmittedGuesses(false);
-      prevSubmittedGuessesRef.current = false; // Reset ref
-      setAllGuessResults({});
-      setHasVoted(false);
-      prevHasVotedRef.current = false; // Reset ref
-      
-      // Update player status but keep host status intact
-      channelRef.current.track({ 
-        id: playerId, 
-        name: username,
-        joinedAt: Date.now(),
-        status: 'ready'  // Always 'ready' status when starting new game
-      });
-      
-      // Schedule a reset of the preservation flag
+      // Auto-reset button disabled state after a timeout (fallback)
       setTimeout(() => {
-        preservingHostRef.current = false;
-        console.log('DEBUG - Host preservation period ended after Play Again');
+        setPlayAgainDisabled(false);
+      }, 10000);
         
-        // Double-check host after preservation ends
-        setTimeout(() => {
-          ensureOriginalHostPreserved();
-        }, 1000);
-      }, 15000); // Increase to 15 seconds
     } catch (error) {
-      console.error('DEBUG - Error resetting game:', error);
+      console.error('DEBUG - PLAY_AGAIN - Error in handlePlayAgain:', error);
+      // Re-enable button if error
+      setPlayAgainDisabled(false);
     }
+  };
+
+  const handleReturnHome = () => {
+    // Set navigation flag to prevent reconnection attempts
+    navigationInProgressRef.current = true;
+    
+    // First, clean up channel connection
+    if (channelRef.current) {
+      try {
+        // Leave the channel properly
+        channelRef.current.unsubscribe();
+        channelRef.current = null;
+      } catch (error) {
+        console.error('Error disconnecting from channel:', error);
+      }
+    }
+
+    // Clear any session storage if needed
+    if (typeof window !== 'undefined') {
+      sessionStorage.removeItem(`username_${slug}`);
+      sessionStorage.removeItem(`originalHost_${slug}`);
+      sessionStorage.removeItem(`autoRestore_${slug}`);
+      sessionStorage.removeItem(`lastChannelInit_${slug}`);
+    }
+    
+    // Then navigate with shallow routing to prevent unnecessary data fetching
+    router.push('/', undefined, { shallow: true });
   };
 
   // Modify syncHostStatus for improved approach
@@ -2942,9 +3530,9 @@ export default function Room() {
       });
       return;
     }
-
+    
     // Set the preservation flag to prevent host changes during operation
-    console.log('DEBUG - CRITICAL - Setting preservation flag during vote submission');
+      console.log('DEBUG - CRITICAL - Setting preservation flag during vote submission');
     preservingHostRef.current = true;
     
     // Mark as submitted locally first for immediate UI feedback
@@ -2964,7 +3552,7 @@ export default function Room() {
       await channelRef.current.send({
         type: 'broadcast',
         event: 'player_vote_submitted',
-        payload: {
+        payload: { 
           playerId,
           guessAuthorId,
           bestConceptDescId,
@@ -2992,7 +3580,7 @@ export default function Room() {
       setGuessSubmittedPlayerIds(prev => prev.filter(id => id !== playerId));
     } finally {
       console.log('DEBUG - CRITICAL - Reset preservation flag after vote submission');
-      preservingHostRef.current = false;
+                preservingHostRef.current = false;
     }
   };
 
@@ -3577,20 +4165,20 @@ export default function Room() {
                   </div>
                   
                   {submittedPlayerIds.includes(player.id) ? (
-                    <div className="flex items-center text-green-600 bg-green-50 px-2 py-1 rounded">
-                      <svg className="w-5 h-5 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                      </svg>
+                      <div className="flex items-center text-green-600 bg-green-50 px-2 py-1 rounded">
+                        <svg className="w-5 h-5 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                        </svg>
                       <span className="text-sm font-medium">Submitted</span>
-                    </div>
-                  ) : (
-                    <div className="flex items-center text-amber-600 bg-amber-50 px-2 py-1 rounded">
+                      </div>
+                    ) : (
+                      <div className="flex items-center text-amber-600 bg-amber-50 px-2 py-1 rounded">
                       <svg className="w-5 h-5 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-                      </svg>
+                        </svg>
                       <span className="text-sm font-medium">Pending</span>
-                    </div>
-                  )}
+                      </div>
+                    )}
                 </div>
               ))}
             </div>
@@ -4072,17 +4660,22 @@ export default function Room() {
           {isOriginalHost && (
             <div className="mt-10 flex justify-center">
               <button
-                onClick={handlePlayAgain}
+                onClick={handleReturnHome}
                 className="px-10 py-4 rounded-lg bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 text-white font-bold text-lg shadow-lg hover:shadow-xl transition-all transform hover:-translate-y-1"
               >
-                Play Again
+                Back to Home
               </button>
             </div>
           )}
           
           {!isOriginalHost && (
-            <div className="mt-8 text-center text-gray-500 italic">
-              Waiting for the host to start a new game...
+            <div className="mt-10 flex justify-center">
+              <button
+                onClick={handleReturnHome}
+                className="px-10 py-4 rounded-lg bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 text-white font-bold text-lg shadow-lg hover:shadow-xl transition-all transform hover:-translate-y-1"
+              >
+                Back to Home
+              </button>
             </div>
           )}
         </div>
@@ -4253,8 +4846,8 @@ export default function Room() {
                   </button>
                 )}
               </li>
-            ))}
-          </ul>
+        ))}
+      </ul>
         </>
       )}
     </main>
