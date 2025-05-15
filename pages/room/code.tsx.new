@@ -4,6 +4,48 @@ import { supa } from "../../lib/supa";
 import Link from "next/link";
 import React from "react";
 
+// Simple logger utility with level-based filtering
+const LogLevel = {
+  ERROR: 0,
+  WARN: 1,
+  INFO: 2,
+  DEBUG: 3,
+  TRACE: 4
+};
+
+// Set this based on environment
+const CURRENT_LOG_LEVEL = process.env.NODE_ENV === 'production' 
+  ? LogLevel.WARN  // Only show warnings and errors in production
+  : LogLevel.DEBUG; // Show most logs in development
+
+const logger = {
+  error: (message: string, data?: any) => {
+    if (CURRENT_LOG_LEVEL >= LogLevel.ERROR) {
+      console.error(`ERROR: ${message}`, data || '');
+    }
+  },
+  warn: (message: string, data?: any) => {
+    if (CURRENT_LOG_LEVEL >= LogLevel.WARN) {
+      console.warn(`WARN: ${message}`, data || '');
+    }
+  },
+  info: (message: string, data?: any) => {
+    if (CURRENT_LOG_LEVEL >= LogLevel.INFO) {
+      console.log(`INFO: ${message}`, data || '');
+    }
+  },
+  debug: (message: string, data?: any) => {
+    if (CURRENT_LOG_LEVEL >= LogLevel.DEBUG) {
+      console.log(`DEBUG: ${message}`, data || '');
+    }
+  },
+  trace: (message: string, data?: any) => {
+    if (CURRENT_LOG_LEVEL >= LogLevel.TRACE) {
+      console.log(`TRACE: ${message}`, data || '');
+    }
+  }
+};
+
 type Player = { id: string; name: string; joinedAt: number; status: 'ready' | 'writing' | 'guessing'; seatNumber?: number };
 type GameSettings = {
   tone: 'Serious' | 'Funny' | 'Dramatic';
@@ -28,12 +70,16 @@ type PlayerVote = {
 const dbg = (
   tag: string,
   info: Record<string, unknown>
-) => console.log(
-  `%cSTATUS0FLOW %s`,
-  'color:#8A2BE2;font-weight:bold;',
-  tag,
-  info
-);
+) => {
+  if (CURRENT_LOG_LEVEL >= LogLevel.DEBUG) {
+    console.log(
+      `%cSTATUS0FLOW %s`,
+      'color:#8A2BE2;font-weight:bold;',
+      tag,
+      info
+    );
+  }
+};
 
 export default function Room() {
   const router = useRouter();
@@ -74,7 +120,6 @@ export default function Room() {
   const [bestConceptWinner, setBestConceptWinner] = useState<string | null>(null);
   const [bestDeliveryWinner, setBestDeliveryWinner] = useState<string | null>(null);
   const [hasVoted, setHasVoted] = useState(false);
-  const [playAgainDisabled, setPlayAgainDisabled] = useState(false);
   
   // Track if host has been explicitly set in this session
   const hostInitializedRef = useRef(false);
@@ -93,11 +138,7 @@ export default function Room() {
   const [connectionRetryCount, setConnectionRetryCount] = useState(0);
   const [isReconnecting, setIsReconnecting] = useState(false);
   const maxRetries = 5;
-  const lastSeatAssignmentRef = useRef<number>(0);
-  const seatAssignmentAttemptsRef = useRef<number>(0);
-  const navigationInProgressRef = useRef<boolean>(false);
   const reconnectionIntervalRef = useRef<NodeJS.Timeout | null>(null);
-  const pingIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
   // Track the original host ID in a ref to prevent it changing due to race conditions
   const originalHostIdRef = useRef<string | null>(null);
@@ -107,56 +148,22 @@ export default function Room() {
   const prevSubmittedGuessesRef = useRef<boolean>(false);
   const prevHasVotedRef = useRef<boolean>(false);
   
-  // Function to return to home screen
-  const handleReturnHome = () => {
-    console.log('DEBUG - NAVIGATION - Returning to home screen');
-    
-    // Set navigation flag to prevent reconnection attempts during navigation
-    navigationInProgressRef.current = true;
-    console.log('INFO: Navigation flag set to prevent reconnection during return to home');
-    
-    // Clean up channel connection
-    if (channelRef.current) {
-      try {
-        // First leave the channel properly
-        channelRef.current.unsubscribe();
-        console.log('DEBUG - Successfully unsubscribed from channel before navigation');
-      } catch (error) {
-        console.error('DEBUG - Error unsubscribing from channel:', error);
-      }
-      
-      // Clear the channel reference
-      channelRef.current = null;
-    }
-    
-    // Clean up any intervals
-    if (reconnectionIntervalRef.current) {
-      clearInterval(reconnectionIntervalRef.current);
-      reconnectionIntervalRef.current = null;
-      console.log('DEBUG - Cleaned up reconnection interval');
-    }
-    
-    if (pingIntervalRef.current) {
-      clearInterval(pingIntervalRef.current);
-      pingIntervalRef.current = null;
-      console.log('DEBUG - Cleaned up ping interval');
-    }
-    
-    // Clear session storage
-    if (typeof window !== 'undefined') {
-      sessionStorage.removeItem(`username_${slug}`);
-      sessionStorage.removeItem(`originalHost_${slug}`);
-      sessionStorage.removeItem(`autoRestore_${slug}`);
-      console.log('DEBUG - Cleaned up session storage before navigation');
-    }
-    
-    // Use shallow routing to prevent history stacking
-    router.push('/', undefined, { shallow: true });
-  };
+  // Add rate limiting for seat assignment to prevent API flooding
+  const lastSeatAssignmentRef = useRef<number>(0);
+  const seatAssignmentAttemptsRef = useRef<number>(0);
+  
+  // Track Play Again button clicks to prevent spam
+  const [playAgainDisabled, setPlayAgainDisabled] = useState(false);
+  
+  // Track player status submissions
+  const [submittingStatus, setSubmittingStatus] = useState(false);
+  
+  // Add a ref to track navigation state
+  const navigationInProgressRef = useRef(false);
   
   // Effect to broadcast ready status after hasSubmitted changes - with improved state tracking
   useEffect(() => {
-    console.log('DEBUG - CRITICAL - useEffect[hasSubmitted, gamePhase] triggered:', {
+    logger.trace('useEffect[hasSubmitted, gamePhase] triggered', {
       hasSubmitted,
       gamePhase,
       prevHasSubmittedRef: prevHasSubmittedRef.current
@@ -164,7 +171,7 @@ export default function Room() {
     
     // Only fire when hasSubmitted transitions from false to true, not on initial mount or phase changes
     if (gamePhase === 'description' && hasSubmitted && !prevHasSubmittedRef.current) {
-      console.log('DEBUG - CRITICAL - Broadcasting ready status from useEffect after hasSubmitted CHANGED from false to true');
+      logger.debug('Broadcasting ready status after hasSubmitted changed to true');
       broadcastAndSyncPlayerStatus('ready');
     }
     // Update ref for next comparison
@@ -173,7 +180,7 @@ export default function Room() {
 
   // Effect to broadcast ready status after submittedGuesses changes - with improved state tracking
   useEffect(() => {
-    console.log('DEBUG - CRITICAL - useEffect[submittedGuesses, gamePhase] triggered:', {
+    logger.trace('useEffect[submittedGuesses, gamePhase] triggered', {
       submittedGuesses,
       gamePhase,
       prevSubmittedGuessesRef: prevSubmittedGuessesRef.current
@@ -181,7 +188,7 @@ export default function Room() {
     
     // Only fire when submittedGuesses transitions from false to true
     if (gamePhase === 'guessing' && submittedGuesses && !prevSubmittedGuessesRef.current) {
-      console.log('DEBUG - CRITICAL - Broadcasting ready status from useEffect after submittedGuesses CHANGED from false to true');
+      logger.debug('Broadcasting ready status after submittedGuesses changed to true');
       broadcastAndSyncPlayerStatus('ready');
     }
     // Update ref for next comparison
@@ -190,7 +197,7 @@ export default function Room() {
   
   // Effect to broadcast ready status after voting - with improved state tracking
   useEffect(() => {
-    console.log('DEBUG - CRITICAL - useEffect[hasVoted, gamePhase] triggered:', {
+    logger.trace('useEffect[hasVoted, gamePhase] triggered', {
       hasVoted,
       gamePhase,
       prevHasVotedRef: prevHasVotedRef.current
@@ -198,7 +205,7 @@ export default function Room() {
     
     // Only fire when hasVoted transitions from false to true
     if (gamePhase === 'results' && hasVoted && !prevHasVotedRef.current) {
-      console.log('DEBUG - CRITICAL - Broadcasting ready status from useEffect after hasVoted CHANGED from false to true');
+      logger.debug('Broadcasting ready status after hasVoted changed to true');
       broadcastAndSyncPlayerStatus('ready');
     }
     // Update ref for next comparison
@@ -305,7 +312,7 @@ export default function Room() {
 
   // Log when host status changes
   useEffect(() => {
-    console.log('DEBUG - Host status check:', { 
+    logger.trace('Host status check', { 
       playerId, 
       hostId, 
       originalHostId,
@@ -322,39 +329,13 @@ export default function Room() {
       
       // Set navigation flag to prevent reconnection attempts during unmount
       navigationInProgressRef.current = true;
-      console.log('INFO: Cleanup on component unmount, navigation flag set');
-      
-      // Clean up channel connection
-      if (channelRef.current) {
-        try {
-          channelRef.current.unsubscribe();
-          console.log('DEBUG - Cleaning up channel and intervals in main useEffect');
-        } catch (error) {
-          console.error('DEBUG - Error unsubscribing from channel during cleanup:', error);
-        }
-        // Clear the reference
-        channelRef.current = null;
-      }
-      
-      // Clean up interval timers
-      if (reconnectionIntervalRef.current) {
-        clearInterval(reconnectionIntervalRef.current);
-        reconnectionIntervalRef.current = null;
-      }
-      
-      if (pingIntervalRef.current) {
-        clearInterval(pingIntervalRef.current);
-        pingIntervalRef.current = null;
-      }
-      
-      console.log('DEBUG - Cleaning up channel and intervals');
       
       // Clean up all session storage keys related to this room
       sessionStorage.removeItem(`username_${slug}`);
       sessionStorage.removeItem(`originalHost_${slug}`);
       sessionStorage.removeItem(`autoRestore_${slug}`);
       
-      console.log('DEBUG - PLAY_AGAIN - Cleaned up session storage on component unmount');
+      logger.info('Cleanup on component unmount, navigation flag set');
     };
   }, [slug]);
   
@@ -569,31 +550,31 @@ export default function Room() {
 
   // Improve the channel reconnection handler
   const handleChannelReconnect = async () => {
-    console.log('DEBUG - CRITICAL - Channel reconnection triggered:', {
+    // Skip reconnection if we're in the process of navigating away
+    if (navigationInProgressRef.current) {
+      logger.debug('Skipping reconnection during navigation');
+      return;
+    }
+    
+    logger.info('Channel reconnection triggered', {
       playerId,
       username,
       gamePhase,
       players: players.length
     });
     
-    // Check if we're in the middle of navigation
-    if (navigationInProgressRef.current) {
-      console.log('DEBUG - CRITICAL - Navigation in progress, skipping reconnection');
-      return;
-    }
-    
     // Reset the preservation flag when reconnecting
     preservingHostRef.current = false;
-    console.log('DEBUG - CRITICAL - Reset preservation flag after channel reconnection');
+    logger.debug('Reset preservation flag after channel reconnection');
     
     // Check if channel exists and is ready
     if (!channelRef.current) {
-      console.error('DEBUG - CRITICAL - Channel not initialized during reconnect');
+      logger.error('Channel not initialized during reconnect');
       return;
     }
 
     try {
-      console.log('DEBUG - CRITICAL - Reconnecting with gamePhase:', gamePhase);
+      logger.debug('Reconnecting with gamePhase:', gamePhase);
       
       // Get seat number from local state if available
       let seatNumber: number | undefined;
@@ -601,7 +582,7 @@ export default function Room() {
       
       if (currentPlayer?.seatNumber !== undefined) {
         seatNumber = currentPlayer.seatNumber;
-        console.log('DEBUG - CRITICAL - Using seat number from player state for reconnect:', seatNumber);
+        logger.trace('Using seat number from player state for reconnect', seatNumber);
       } else {
         // Fetch from database as fallback
         const { data, error } = await supa
@@ -613,7 +594,7 @@ export default function Room() {
         
         if (!error && data && data.seat_number) {
           seatNumber = data.seat_number;
-          console.log('DEBUG - CRITICAL - Fetched seat number from database for reconnect:', seatNumber);
+          logger.trace('Fetched seat number from database for reconnect', seatNumber);
         }
       }
       
@@ -623,11 +604,11 @@ export default function Room() {
       if (gamePhase === 'description') {
         // In description phase, only ready if submitted
         reconnectStatus = hasSubmitted ? 'ready' : 'writing';
-        console.log('DEBUG - CRITICAL - Setting reconnect status for description phase:', reconnectStatus);
+        logger.trace('Setting reconnect status for description phase', reconnectStatus);
       } else if (gamePhase === 'guessing') {
         // In guessing phase, only ready if guesses submitted
         reconnectStatus = submittedGuesses ? 'ready' : 'guessing';
-        console.log('DEBUG - CRITICAL - Setting reconnect status for guessing phase:', reconnectStatus);
+        logger.trace('Setting reconnect status for guessing phase', reconnectStatus);
       } else {
         // For other phases, default to ready
         reconnectStatus = 'ready';
@@ -642,7 +623,10 @@ export default function Room() {
         status: reconnectStatus
       });
       
-      console.log('DEBUG - CRITICAL - Retracked presence after reconnection with status:', reconnectStatus, 'and seat number:', seatNumber);
+      logger.debug('Retracked presence after reconnection', {
+        status: reconnectStatus,
+        seatNumber: seatNumber
+      });
       
       // Perform phase-specific recovery
       if (gamePhase !== 'lobby') {
@@ -662,19 +646,19 @@ export default function Room() {
                     timestamp: Date.now()
                   }
                 });
-                console.log('DEBUG - CRITICAL - Rebroadcast host status after reconnection');
+                logger.debug('Rebroadcast host status after reconnection');
               }
             } catch (error) {
-              console.error('DEBUG - CRITICAL - Failed to rebroadcast host status:', error);
+              logger.error('Failed to rebroadcast host status', error);
             }
           }, 1000);
         }
       }
     } catch (error) {
-      console.error('DEBUG - CRITICAL - Error during channel reconnection:', error);
+      logger.error('Error during channel reconnection', error);
       // Attempt to reinitialize the channel if it failed
       if (!channelRef.current) {
-        console.log('DEBUG - CRITICAL - Attempting to reinitialize channel after failed reconnect');
+        logger.info('Attempting to reinitialize channel after failed reconnect');
         initializeChannel();
       }
     }
@@ -1338,6 +1322,11 @@ export default function Room() {
         if (payload.phase === 'reading' && payload.script) {
           console.log('DEBUG - CRITICAL - Received script in phase change payload');
           setGeneratedScript(payload.script);
+          
+          // Also set the script title if available
+          if (payload.scriptTitle) {
+            setScriptTitle(payload.scriptTitle);
+          }
         } else if (payload.phase === 'reading') {
           console.log('DEBUG - CRITICAL - Phase changed to reading but no script in payload');
           
@@ -1869,6 +1858,11 @@ export default function Room() {
           if (payload.script && !generatedScript) {
             console.log('DEBUG - CRITICAL - Received script from direct response');
             setGeneratedScript(payload.script);
+            
+            // Also save the script title
+            if (payload.scriptTitle) {
+              setScriptTitle(payload.scriptTitle);
+            }
           }
         }
       })
@@ -1880,6 +1874,11 @@ export default function Room() {
           // Update the script for all players regardless of host status
           console.log('DEBUG - CRITICAL - Setting script from direct script update broadcast');
           setGeneratedScript(payload.script);
+          
+          // Also save the script title
+          if (payload.scriptTitle) {
+            setScriptTitle(payload.scriptTitle);
+          }
         }
       })
       .on('broadcast', { event: 'force_status_sync' }, ({ payload }) => {
@@ -2042,6 +2041,11 @@ export default function Room() {
         if (payload.script) {
           console.log('DEBUG - CRITICAL - Setting script from direct script update broadcast');
           setGeneratedScript(payload.script);
+          
+          // Also save the script title
+          if (payload.scriptTitle) {
+            setScriptTitle(payload.scriptTitle);
+          }
         }
       })
       // Add event listener for play_again_reload
@@ -2222,18 +2226,30 @@ export default function Room() {
           }, 5000);
         } 
         else if (status === 'CHANNEL_ERROR') {
-          console.log('DEBUG - Channel error, attempting reconnection...');
+          logger.debug('Channel error, attempting reconnection...');
+          
+          // Skip reconnection if navigation is in progress
+          if (navigationInProgressRef.current) {
+            logger.trace('Skipping reconnection during navigation (CHANNEL_ERROR)');
+            return;
+          }
           
           // Only trigger reconnection if not already reconnecting
           if (!isReconnecting && connectionRetryCount < maxRetries) {
             handleChannelReconnect();
           } else if (connectionRetryCount >= maxRetries) {
-            console.log('DEBUG - Maximum reconnection attempts reached. Suggesting page refresh');
+            logger.warn('Maximum reconnection attempts reached. Suggesting page refresh');
             alert('Lost connection to the game. Please refresh the page to reconnect.');
           }
         }
         else if (status === 'CLOSED' || status === 'TIMED_OUT') {
-          console.log(`DEBUG - Channel ${status}, attempting reconnection...`);
+          logger.debug(`Channel ${status}, attempting reconnection...`);
+          
+          // Skip reconnection if navigation is in progress
+          if (navigationInProgressRef.current) {
+            logger.trace(`Skipping reconnection during navigation (${status})`);
+            return;
+          }
           
           // Only trigger reconnection if not already reconnecting
           if (!isReconnecting && connectionRetryCount < maxRetries) {
@@ -2244,6 +2260,12 @@ export default function Room() {
     
     // Schedule periodic presence pings to keep connection alive
     const pingInterval = setInterval(async () => {
+      // Skip if navigation is in progress
+      if (navigationInProgressRef.current) {
+        logger.trace('Skipping presence ping during navigation');
+        return;
+      }
+      
       if (channelRef.current) {
         try {
           // Get current seat number if available in state
@@ -2254,6 +2276,7 @@ export default function Room() {
             // Use the player's current seat number from state if available
             if (currentPlayer.seatNumber !== undefined) {
               seatNumber = currentPlayer.seatNumber;
+              logger.trace('Using player seat number for ping', seatNumber);
             }
           }
           
@@ -2268,7 +2291,7 @@ export default function Room() {
             
             if (!error && data && data.seat_number) {
               seatNumber = data.seat_number;
-              console.log('DEBUG - CRITICAL - Fetched seat number from database:', seatNumber);
+              logger.trace('Fetched seat number from database for ping', seatNumber);
             }
           }
           
@@ -2281,12 +2304,12 @@ export default function Room() {
             seatNumber
             // No status field - status will only be modified by explicit broadcasts
           });
-          console.log('DEBUG - CRITICAL - Sent presence ping with seat number:', seatNumber, '(no status)');
+          logger.trace('Sent presence ping with seat number', seatNumber);
         } catch (err) {
-          console.error('DEBUG - CRITICAL - Error sending presence ping:', err);
+          logger.error('Error sending presence ping', err);
           
           // If we encounter an error during ping, try to reconnect
-          if (!isReconnecting && connectionRetryCount < maxRetries) {
+          if (!navigationInProgressRef.current && !isReconnecting && connectionRetryCount < maxRetries) {
             handleChannelReconnect();
           }
         }
@@ -2295,14 +2318,14 @@ export default function Room() {
     
     // Return cleanup function
     return () => {
-      console.log('DEBUG - Cleaning up channel and intervals');
+      logger.debug('Cleaning up channel and intervals');
       clearInterval(pingInterval);
       
       if (channelRef.current) {
         try {
           channelRef.current.unsubscribe();
         } catch (err) {
-          console.error('DEBUG - Error unsubscribing from channel during cleanup:', err);
+          logger.error('Error unsubscribing from channel during cleanup', err);
         }
       }
       
@@ -2348,15 +2371,21 @@ export default function Room() {
     
     // Setup reconnection retry for dropped connections
     reconnectionIntervalRef.current = setInterval(() => {
+      // Skip if navigation is in progress
+      if (navigationInProgressRef.current) {
+        logger.trace('Skipping reconnection check during navigation');
+        return;
+      }
+      
       if (!channelRef.current && !isReconnecting && connectionRetryCount < maxRetries) {
-        console.log('DEBUG - Detected missing channel, initiating reconnection');
+        logger.info('Detected missing channel, initiating reconnection');
         handleChannelReconnect();
       }
     }, 5000); // Check every 5 seconds
     
     // Return cleanup function
     return () => {
-      console.log('DEBUG - Cleaning up channel and intervals in main useEffect');
+      logger.debug('Cleaning up channel and intervals in main useEffect');
       
       if (reconnectionIntervalRef.current) {
         clearInterval(reconnectionIntervalRef.current);
@@ -2375,7 +2404,7 @@ export default function Room() {
   const handleUsernameSubmit = () => {
     if (!tempUsername.trim()) return;
     
-    console.log('DEBUG - Username submit:', { 
+    logger.debug('Username submit', { 
       tempUsername, 
       currentUsername: username
     });
@@ -2623,8 +2652,12 @@ export default function Room() {
       const data = await response.json();
       console.log('DEBUG - CRITICAL - Generated script:', data);
       
-      // Set the script locally - title is now included in the script content
+      // Generate title from actual game settings
+      const generatedTitle = `A ${gameSettings.tone} Adventure at the ${gameSettings.scene}`;
+      
+      // Set the script locally
       setGeneratedScript(data.script);
+      setScriptTitle(generatedTitle);
       
       // 1. First broadcast the script to all players separately from phase change
       if (channelRef.current) {
@@ -2635,6 +2668,7 @@ export default function Room() {
             event: 'script_update',
             payload: { 
               script: data.script,
+              scriptTitle: generatedTitle,
               fromHost: playerId,
               timestamp: Date.now()
             }
@@ -2656,6 +2690,7 @@ export default function Room() {
             payload: { 
               phase: 'reading',
                 script: data.script, // Include script in phase change too as fallback
+                scriptTitle: generatedTitle, // Include title here too
                 timestamp: Date.now()
               }
             });
@@ -2866,6 +2901,7 @@ export default function Room() {
             event: 'script_response',
             payload: { 
               script: generatedScript,
+              scriptTitle,
               forPlayerId: payload?.requestingPlayerId
             }
           });
@@ -2905,9 +2941,8 @@ export default function Room() {
           console.log('DEBUG - CRITICAL - Received script from direct response');
           setGeneratedScript(payload.script);
           
-          // Also set the script title if provided
+          // Also save the script title
           if (payload.scriptTitle) {
-            console.log('DEBUG - CRITICAL - Setting script title from response');
             setScriptTitle(payload.scriptTitle);
           }
         }
@@ -3206,6 +3241,33 @@ export default function Room() {
       // Re-enable button if error
       setPlayAgainDisabled(false);
     }
+  };
+
+  const handleReturnHome = () => {
+    // Set navigation flag to prevent reconnection attempts
+    navigationInProgressRef.current = true;
+    
+    // First, clean up channel connection
+    if (channelRef.current) {
+      try {
+        // Leave the channel properly
+        channelRef.current.unsubscribe();
+        channelRef.current = null;
+      } catch (error) {
+        console.error('Error disconnecting from channel:', error);
+      }
+    }
+
+    // Clear any session storage if needed
+    if (typeof window !== 'undefined') {
+      sessionStorage.removeItem(`username_${slug}`);
+      sessionStorage.removeItem(`originalHost_${slug}`);
+      sessionStorage.removeItem(`autoRestore_${slug}`);
+      sessionStorage.removeItem(`lastChannelInit_${slug}`);
+    }
+    
+    // Then navigate with shallow routing to prevent unnecessary data fetching
+    router.push('/', undefined, { shallow: true });
   };
 
   // Modify syncHostStatus for improved approach
@@ -3663,6 +3725,7 @@ export default function Room() {
           if (!isInSubmittedIds) {
             console.log('DEBUG - CRITICAL - Preventing invalid ready status - player not in submittedPlayerIds');
             return; // Don't allow ready status without presence in submittedPlayerIds
+          }
           
           if (!hasSubmitted) {
             console.log('DEBUG - CRITICAL - Warning: hasSubmitted flag doesn\'t match submittedPlayerIds');
@@ -3871,24 +3934,16 @@ export default function Room() {
           <textarea
             value={description}
             onChange={(e) => setDescription(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && !e.shiftKey && !hasSubmitted && description.trim()) {
+                e.preventDefault();
+                handleSubmitDescription();
+              }
+            }}
             className="w-full h-32 p-2 border rounded focus:ring focus:ring-blue-300"
             placeholder="Describe their character (personality, quirks, motivation, etc.)"
             disabled={hasSubmitted}
           />
-          
-          {/* Character Counter */}
-          <div className="mt-1 flex justify-end items-center">
-            <span className={`text-xs ${
-              description.length > 1738 ? 'text-red-600 font-semibold' :
-              description.length > 1500 ? 'text-amber-600' : 
-              'text-gray-500'
-            }`}>
-              {description.length} / 1738 characters
-              {description.length > 1738 ? ' (maximum reached)' : 
-               description.length > 1500 ? ' (approaching limit)' : 
-               description.length < 100 ? ' (minimum 100 characters)' : ''}
-            </span>
-          </div>
         </div>
         <div className="flex justify-between items-center">
           <span className="text-sm text-gray-500">
@@ -3896,9 +3951,9 @@ export default function Room() {
           </span>
           <button
             onClick={handleSubmitDescription}
-            disabled={!description.trim() || description.length < 100 || description.length > 1738 || hasSubmitted}
+            disabled={!description.trim() || hasSubmitted}
             className={`px-4 py-2 rounded ${
-              !description.trim() || description.length < 100 || description.length > 1738 || hasSubmitted
+              !description.trim() || hasSubmitted
                 ? "bg-gray-300 cursor-not-allowed"
                 : "bg-blue-500 hover:bg-blue-600 text-white"
             }`}
@@ -3918,7 +3973,7 @@ export default function Room() {
   // Reading phase UI
   if (gamePhase === 'reading') {
     // Generate a title for the script based on game settings
-    const scriptTitle = `A ${gameSettings.tone} Adventure at the ${gameSettings.scene}`;
+    // const scriptTitle = `A ${gameSettings.tone} Adventure at the ${gameSettings.scene}`;
     
     // Add debugging to help track script visibility issues
     if (!isHost && !generatedScript) {
@@ -4011,9 +4066,9 @@ export default function Room() {
           </div>
           
           {/* Script title */}
-          {/* <h3 className="text-xl font-bold mb-4 text-center text-indigo-700 italic">
+          <h3 className="text-xl font-bold mb-4 text-center text-indigo-700 italic">
             "{scriptTitle}"
-          </h3> */}
+          </h3>
           
           <div className="p-6 bg-gray-100 rounded-lg mb-6 whitespace-pre-wrap font-serif text-lg leading-relaxed border border-gray-300 max-h-[500px] overflow-y-auto shadow-inner">
             {generatedScript ? (
@@ -4023,15 +4078,6 @@ export default function Room() {
                   return (
                     <div key={index} className="mb-6 italic text-gray-900 bg-blue-50 p-3 rounded border border-blue-100">
                       {section}
-                    </div>
-                  );
-                } else if (section.startsWith('[TITLE:')) {
-                  // Extract and format the title
-                  const titleMatch = section.match(/\[TITLE: "(.+?)"\]/);
-                  const title = titleMatch ? titleMatch[1] : "Untitled Script";
-                  return (
-                    <div key={index} className="mb-6 text-center text-xl font-bold text-indigo-700 italic bg-indigo-50 p-4 rounded-lg border border-indigo-200">
-                      {title}
                     </div>
                   );
                 } else if (section.startsWith('[')) {
@@ -4181,7 +4227,7 @@ export default function Room() {
             
             {/* Add submission counter */}
             <div className="mb-4 text-center">
-              <strong>{submittedPlayerIds.length} of {players.length}</strong> players have submitted
+              <strong>{guessSubmittedPlayerIds.length} of {players.length}</strong> players have submitted
             </div>
             
             {renderDescriptionPhase()}
@@ -4314,17 +4360,9 @@ export default function Room() {
             Vote for your favorite performances and guess who wrote your character.
           </p>
           
-          {/* Scoring Banner - Added for clearer point attribution */}
-          <div className="w-full p-3 bg-indigo-50 border border-indigo-100 rounded-lg mb-6 text-center">
-            <p className="text-indigo-800 italic text-sm md:text-base font-medium">
-              3 points for correctly guessing who wrote your description.
-              1 point per vote received for Best Concept and Best Delivery.
-            </p>
-          </div>
-          
           {/* Add submission counter */}
           <div className="mb-4 text-center">
-            <strong>{guessSubmittedPlayerIds.length} of {players.length}</strong> players have submitted
+            <strong>{players.filter(p => p.status === 'ready').length} of {players.length}</strong> players have submitted
           </div>
           
           {/* Section A: Who wrote your description? */}
@@ -4392,7 +4430,7 @@ export default function Room() {
             >
               <option value="">Select a character...</option>
               {stablePlayers
-                .filter(p => p.id !== playerAssignments.find(a => a.playerId === playerId)?.assignedPlayerId)
+                .filter(p => p.id !== playerId) // Can't vote for yourself
                 .map(player => (
                   <option key={player.id} value={player.id}>
                     {player.name}
@@ -4708,54 +4746,27 @@ export default function Room() {
             </div>
           </div>
           
-          {/* Character Writers Section */}
-          <div className="mt-10 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-xl p-6 border border-blue-100">
-            <h3 className="text-2xl font-bold mb-6 text-blue-800 text-center">Character Writers</h3>
-            
-            <div className="grid grid-cols-1 gap-3">
-              {playerAssignments.map((assignment) => {
-                const writer = players.find(p => p.id === assignment.playerId);
-                const character = players.find(p => p.id === assignment.assignedPlayerId);
-                const isConceptWinner = assignment.playerId === bestConceptWinner;
-                
-                if (!writer || !character) return null;
-                
-                return (
-                  <div 
-                    key={`${assignment.playerId}-${assignment.assignedPlayerId}`}
-                    className={`p-4 rounded-lg flex items-center justify-between ${
-                      isConceptWinner 
-                        ? 'bg-gradient-to-r from-amber-50 to-amber-100 border border-amber-200' 
-                        : 'bg-white border border-gray-100'
-                    }`}
-                  >
-                    <div className="flex items-center">
-                      <span className="font-semibold">{writer.name}</span>
-                      <span className="mx-2 text-gray-500">wrote for</span>
-                      <span className="font-semibold">{character.name}</span>
-                    </div>
-                    
-                    {isConceptWinner && (
-                      <div className="flex items-center text-amber-700">
-                        <span className="text-xl mr-1">🏆</span>
-                        <span className="font-medium text-sm">Best Concept</span>
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-          
+          {isOriginalHost && (
             <div className="mt-10 flex justify-center">
               <button
-              onClick={handleReturnHome}
+                onClick={handleReturnHome}
                 className="px-10 py-4 rounded-lg bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 text-white font-bold text-lg shadow-lg hover:shadow-xl transition-all transform hover:-translate-y-1"
               >
-              Back to Home
+                Back to Home
               </button>
             </div>
+          )}
           
+          {!isOriginalHost && (
+            <div className="mt-10 flex justify-center">
+              <button
+                onClick={handleReturnHome}
+                className="px-10 py-4 rounded-lg bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 text-white font-bold text-lg shadow-lg hover:shadow-xl transition-all transform hover:-translate-y-1"
+              >
+                Back to Home
+              </button>
+            </div>
+          )}
         </div>
       </main>
     );
