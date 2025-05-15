@@ -59,7 +59,6 @@ export default function Room() {
     length: 'Short'
   });
   const [generatedScript, setGeneratedScript] = useState<string>("");
-  const [scriptTitle, setScriptTitle] = useState<string>("");
   const [isGeneratingScript, setIsGeneratingScript] = useState(false);
   const [currentLineIndex, setCurrentLineIndex] = useState(0);
   const [playerGuesses, setPlayerGuesses] = useState<Record<string, string>>({});
@@ -74,7 +73,6 @@ export default function Room() {
   const [bestConceptWinner, setBestConceptWinner] = useState<string | null>(null);
   const [bestDeliveryWinner, setBestDeliveryWinner] = useState<string | null>(null);
   const [hasVoted, setHasVoted] = useState(false);
-  const [playAgainDisabled, setPlayAgainDisabled] = useState(false);
   
   // Track if host has been explicitly set in this session
   const hostInitializedRef = useRef(false);
@@ -98,7 +96,7 @@ export default function Room() {
   const navigationInProgressRef = useRef<boolean>(false);
   const reconnectionIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const pingIntervalRef = useRef<NodeJS.Timeout | null>(null);
-
+  
   // Track the original host ID in a ref to prevent it changing due to race conditions
   const originalHostIdRef = useRef<string | null>(null);
   
@@ -899,9 +897,9 @@ export default function Room() {
     // Update last initialization timestamp
     window.sessionStorage.setItem(`lastChannelInit_${slug}`, now.toString());
     
-    console.log('DEBUG - CRITICAL - Initializing channel:', { 
-      slug, 
-      username, 
+    console.log('DEBUG - CRITICAL - Initializing channel:', {
+      slug,
+      username,
       playerId
     });
     
@@ -1863,7 +1861,7 @@ export default function Room() {
           setPlayerAssignments(payload.allAssignments);
         }
       })
-      .on('broadcast', { event: 'script_response' }, ({ payload }: { payload: { script?: string, scriptTitle?: string, forPlayerId?: string } }) => {
+      .on('broadcast', { event: 'script_response' }, ({ payload }) => {
         // Only process if this response is for me or broadcast to all
         if (!payload.forPlayerId || payload.forPlayerId === playerId) {
           if (payload.script && !generatedScript) {
@@ -2005,8 +2003,8 @@ export default function Room() {
           }
         }
       })
-      .on('broadcast', { event: 'host_correction' }, ({ payload }) => {
-        console.log('DEBUG - CRITICAL - Received host correction:', payload);
+      .on('broadcast', { event: 'host_update' }, ({ payload }) => {
+        console.log('DEBUG - CRITICAL - Received host update:', payload);
         
         // If this message is directed at me (I'm the incorrect host)
         if (payload.incorrectHostId === playerId) {
@@ -2043,44 +2041,6 @@ export default function Room() {
           console.log('DEBUG - CRITICAL - Setting script from direct script update broadcast');
           setGeneratedScript(payload.script);
         }
-      })
-      // Add event listener for play_again_reload
-      .on('broadcast', { event: 'play_again_reload' }, ({ payload }) => {
-        console.log('DEBUG - PLAY_AGAIN - Received reload signal:', {
-          initiatedBy: payload.initiatedBy,
-          originalHostId: payload.originalHostId,
-          myId: playerId,
-          timestamp: payload.timestamp
-        });
-        
-        // Store username in sessionStorage before reload
-        if (typeof window !== 'undefined') {
-          // Reset counters and flags to avoid issues after reload
-          sessionStorage.removeItem(`autoRestore_${slug}`);
-          sessionStorage.removeItem(`lastChannelInit_${slug}`);
-          seatAssignmentAttemptsRef.current = 0;
-          lastSeatAssignmentRef.current = 0;
-          
-          sessionStorage.setItem(`username_${slug}`, username);
-          
-          // Also save original host ID if available
-          if (payload.originalHostId) {
-            sessionStorage.setItem(`originalHost_${slug}`, payload.originalHostId);
-          }
-          
-          console.log('DEBUG - PLAY_AGAIN - Stored username and host info before reload');
-        }
-        
-        // Small delay to ensure all clients receive the message
-        // Different delays for initiator vs others to prevent conflicts
-        const delay = payload.initiatedBy === playerId ? 200 : 300 + Math.random() * 200;
-        
-        console.log(`DEBUG - PLAY_AGAIN - Will reload in ${delay}ms`);
-        
-        setTimeout(() => {
-          console.log('DEBUG - PLAY_AGAIN - Reloading page');
-          window.location.reload();
-        }, delay);
       })
       
     // subscribe handles connection state
@@ -2623,7 +2583,7 @@ export default function Room() {
       const data = await response.json();
       console.log('DEBUG - CRITICAL - Generated script:', data);
       
-      // Set the script locally - title is now included in the script content
+      // Set the script locally
       setGeneratedScript(data.script);
       
       // 1. First broadcast the script to all players separately from phase change
@@ -2898,18 +2858,12 @@ export default function Room() {
     if (!channelRef.current) return;
     
     const channel = channelRef.current;
-    const scriptResponseHandler = channel.on('broadcast', { event: 'script_response' }, ({ payload }: { payload: { script?: string, scriptTitle?: string, forPlayerId?: string } }) => {
+    const scriptResponseHandler = channel.on('broadcast', { event: 'script_response' }, ({ payload }: { payload: { script?: string, forPlayerId?: string } }) => {
       // Only process if this response is for me or broadcast to all
       if (!payload.forPlayerId || payload.forPlayerId === playerId) {
         if (payload.script && !generatedScript) {
           console.log('DEBUG - CRITICAL - Received script from direct response');
           setGeneratedScript(payload.script);
-          
-          // Also set the script title if provided
-          if (payload.scriptTitle) {
-            console.log('DEBUG - CRITICAL - Setting script title from response');
-            setScriptTitle(payload.scriptTitle);
-          }
         }
       }
     });
@@ -3200,7 +3154,7 @@ export default function Room() {
       setTimeout(() => {
         setPlayAgainDisabled(false);
       }, 10000);
-        
+      
     } catch (error) {
       console.error('DEBUG - PLAY_AGAIN - Error in handlePlayAgain:', error);
       // Re-enable button if error
@@ -3875,20 +3829,6 @@ export default function Room() {
             placeholder="Describe their character (personality, quirks, motivation, etc.)"
             disabled={hasSubmitted}
           />
-          
-          {/* Character Counter */}
-          <div className="mt-1 flex justify-end items-center">
-            <span className={`text-xs ${
-              description.length > 1738 ? 'text-red-600 font-semibold' :
-              description.length > 1500 ? 'text-amber-600' : 
-              'text-gray-500'
-            }`}>
-              {description.length} / 1738 characters
-              {description.length > 1738 ? ' (maximum reached)' : 
-               description.length > 1500 ? ' (approaching limit)' : 
-               description.length < 100 ? ' (minimum 100 characters)' : ''}
-            </span>
-          </div>
         </div>
         <div className="flex justify-between items-center">
           <span className="text-sm text-gray-500">
@@ -3896,9 +3836,9 @@ export default function Room() {
           </span>
           <button
             onClick={handleSubmitDescription}
-            disabled={!description.trim() || description.length < 100 || description.length > 1738 || hasSubmitted}
+            disabled={!description.trim() || hasSubmitted}
             className={`px-4 py-2 rounded ${
-              !description.trim() || description.length < 100 || description.length > 1738 || hasSubmitted
+              !description.trim() || hasSubmitted
                 ? "bg-gray-300 cursor-not-allowed"
                 : "bg-blue-500 hover:bg-blue-600 text-white"
             }`}
@@ -4011,9 +3951,9 @@ export default function Room() {
           </div>
           
           {/* Script title */}
-          {/* <h3 className="text-xl font-bold mb-4 text-center text-indigo-700 italic">
+          <h3 className="text-xl font-bold mb-4 text-center text-indigo-700 italic">
             "{scriptTitle}"
-          </h3> */}
+          </h3>
           
           <div className="p-6 bg-gray-100 rounded-lg mb-6 whitespace-pre-wrap font-serif text-lg leading-relaxed border border-gray-300 max-h-[500px] overflow-y-auto shadow-inner">
             {generatedScript ? (
@@ -4023,15 +3963,6 @@ export default function Room() {
                   return (
                     <div key={index} className="mb-6 italic text-gray-900 bg-blue-50 p-3 rounded border border-blue-100">
                       {section}
-                    </div>
-                  );
-                } else if (section.startsWith('[TITLE:')) {
-                  // Extract and format the title
-                  const titleMatch = section.match(/\[TITLE: "(.+?)"\]/);
-                  const title = titleMatch ? titleMatch[1] : "Untitled Script";
-                  return (
-                    <div key={index} className="mb-6 text-center text-xl font-bold text-indigo-700 italic bg-indigo-50 p-4 rounded-lg border border-indigo-200">
-                      {title}
                     </div>
                   );
                 } else if (section.startsWith('[')) {
@@ -4181,7 +4112,7 @@ export default function Room() {
             
             {/* Add submission counter */}
             <div className="mb-4 text-center">
-              <strong>{submittedPlayerIds.length} of {players.length}</strong> players have submitted
+              <strong>{guessSubmittedPlayerIds.length} of {players.length}</strong> players have submitted
             </div>
             
             {renderDescriptionPhase()}
@@ -4257,19 +4188,6 @@ export default function Room() {
                   ? 'All players are ready! You can generate the script now.'
                   : 'Wait for all players to submit their descriptions.'}
               </p>
-              
-              {/* Add sync host button if host status seems wrong */}
-              {players.length > 0 && players[0].id !== hostId && (
-                <div className="mt-4 pt-4 border-t border-gray-200">
-                  <p className="text-xs text-amber-600 mb-2">Host status may be out of sync</p>
-                  <button
-                    onClick={syncHostStatus}
-                    className="w-full py-2 px-4 bg-gray-200 hover:bg-gray-300 rounded text-gray-700 text-sm"
-                  >
-                    Sync Host Status
-                  </button>
-                </div>
-              )}
             </div>
           )}
         </div>
@@ -4314,17 +4232,9 @@ export default function Room() {
             Vote for your favorite performances and guess who wrote your character.
           </p>
           
-          {/* Scoring Banner - Added for clearer point attribution */}
-          <div className="w-full p-3 bg-indigo-50 border border-indigo-100 rounded-lg mb-6 text-center">
-            <p className="text-indigo-800 italic text-sm md:text-base font-medium">
-              3 points for correctly guessing who wrote your description.
-              1 point per vote received for Best Concept and Best Delivery.
-            </p>
-          </div>
-          
           {/* Add submission counter */}
           <div className="mb-4 text-center">
-            <strong>{guessSubmittedPlayerIds.length} of {players.length}</strong> players have submitted
+            <strong>{players.filter(p => p.status === 'ready').length} of {players.length}</strong> players have submitted
           </div>
           
           {/* Section A: Who wrote your description? */}
@@ -4392,7 +4302,7 @@ export default function Room() {
             >
               <option value="">Select a character...</option>
               {stablePlayers
-                .filter(p => p.id !== playerAssignments.find(a => a.playerId === playerId)?.assignedPlayerId)
+                .filter(p => p.id !== playerId) // Can't vote for yourself
                 .map(player => (
                   <option key={player.id} value={player.id}>
                     {player.name}
@@ -4747,14 +4657,14 @@ export default function Room() {
             </div>
           </div>
           
-            <div className="mt-10 flex justify-center">
-              <button
+          <div className="mt-10 flex justify-center">
+            <button
               onClick={handleReturnHome}
-                className="px-10 py-4 rounded-lg bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 text-white font-bold text-lg shadow-lg hover:shadow-xl transition-all transform hover:-translate-y-1"
-              >
+              className="px-10 py-4 rounded-lg bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 text-white font-bold text-lg shadow-lg hover:shadow-xl transition-all transform hover:-translate-y-1"
+            >
               Back to Home
-              </button>
-            </div>
+            </button>
+          </div>
           
         </div>
       </main>
@@ -4861,22 +4771,6 @@ export default function Room() {
                 {players.length < 2 ? "Need More Players" : "Start Game"}
               </button>
             </div>
-          </div>
-        )}
-
-        {/* Display for non-host who should be host based on join time */}
-        {!isHost && gamePhase === 'lobby' && players.length > 0 && players[0].id === playerId && (
-          <div className="flex flex-col gap-4 p-4 bg-yellow-50 border border-yellow-200 rounded-lg shadow-md">
-            <h2 className="text-lg font-semibold text-amber-700">Host Status Issue</h2>
-            <p className="text-sm text-amber-600">
-              You should be the host (first player), but your host status is not active.
-            </p>
-            <button
-              onClick={syncHostStatus}
-              className="px-4 py-2 bg-amber-500 hover:bg-amber-600 text-white rounded-md"
-            >
-              Claim Host Status
-            </button>
           </div>
         )}
 
