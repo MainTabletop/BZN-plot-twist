@@ -8,3 +8,10 @@ export const supa = createClient(supabaseUrl, anonKey, {
   realtime: { auth: { persistSession: false } },
 });
 
+// src/lib/supa.ts
+export async function getUid() {
+  const { data: { user } } = await supa.auth.getUser();
+  return user?.id ?? null;          // returns string or null
+}
+
+

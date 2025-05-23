@@ -83,7 +83,7 @@ export default async function handler(
     const maxTokens = tokenMap[settings.length.toLowerCase() as keyof typeof tokenMap] || tokenMap.medium;
 
     // Create structured prompt
-    const system = `You are an award‑winning screenwriter. Write tight, highly readable screenplays that work as live table‑reads for 4–10 friends. Can be Rated R. Use every character provided in depth. Make sure to use their descriptions as much as you can.`;
+    const system = `You are an award‑winning screenwriter. Write a tight, highly readable screenplay that works as a live table‑read for 4–10 friends. Can be Rated R. Use every character provided in depth. Make sure to use their descriptions as much as you can, while making it seem natrually the way you bring in the details from the descriptions.`;
     
     const user = `
 # PlotTwist Scene
@@ -97,7 +97,7 @@ export default async function handler(
 ${charactersList}
 
 ## Rules
-1. Include every trait from descriptions.
+1. Include every trait from descriptions, but try to be as natural as possible.
 2. Spotlight the most creative description.
 3. Use standard screenplay format (CHARACTER, dialogue, brief stage directions).
 `;
