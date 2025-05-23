@@ -17,6 +17,4 @@ if (!supabaseUrl || !anonKey) {
 }
 
 // single client for the whole app
-export const supa = createClient(supabaseUrl, anonKey, {
-  realtime: { auth: { persistSession: false } },
-});
+export const supa = createClient(supabaseUrl, anonKey);
