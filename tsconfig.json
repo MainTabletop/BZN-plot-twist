@@ -18,5 +18,12 @@
     }
   },
   "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx"],
-  "exclude": ["node_modules", ".next", "plot-twist"]
+  "exclude": [
+    "node_modules",
+    ".next",
+    "plot-twist",
+    "pages/room/*.fixed.tsx",
+    "pages/room/*.tmp.tsx",
+    "pages/room/*.tsx.bak"
+  ]
 }
