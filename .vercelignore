@@ -1,0 +1,3 @@
+# ignore leftover backups and zip
+plot-twist/
+*.zip 
