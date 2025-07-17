@@ -3,6 +3,7 @@ import { useEffect, useState, useRef } from "react";
 import { supa } from "../../lib/supa";
 import Link from "next/link";
 import React from "react";
+import DarkModeToggle from "../../components/DarkModeToggle";
 
 type Player = { id: string; name: string; joinedAt: number; status: 'ready' | 'writing' | 'guessing'; seatNumber?: number };
 type GameSettings = {
@@ -3842,36 +3843,36 @@ export default function Room() {
       }
       
       return (
-        <div className="p-4 max-w-md mx-auto bg-white rounded-xl shadow-md">
-          <h2 className="text-xl font-bold mb-4">Write a character description for:</h2>
+        <div className="p-4 max-w-md mx-auto bg-background-card rounded-xl shadow-md">
+          <h2 className="text-xl font-bold mb-4 text-text-primary">Write a character description for:</h2>
           <div className="animate-pulse flex space-x-4">
             <div className="flex-1 space-y-4 py-1">
-              <div className="h-4 bg-gray-200 rounded w-3/4"></div>
+              <div className="h-4 bg-background-muted rounded w-3/4"></div>
               <div className="space-y-2">
-                <div className="h-4 bg-gray-200 rounded"></div>
-                <div className="h-4 bg-gray-200 rounded w-5/6"></div>
-                <div className="h-4 bg-gray-200 rounded w-5/6"></div>
+                <div className="h-4 bg-background-muted rounded"></div>
+                <div className="h-4 bg-background-muted rounded w-5/6"></div>
+                <div className="h-4 bg-background-muted rounded w-5/6"></div>
               </div>
             </div>
           </div>
-          <p className="text-gray-500 mt-2">Waiting for assignments...</p>
+          <p className="text-text-muted mt-2">Waiting for assignments...</p>
         </div>
       );
     }
     
     // Rest of the existing description phase UI
     return (
-      <div className="p-4 max-w-md mx-auto bg-white rounded-xl shadow-md">
-        <h2 className="text-xl font-bold mb-4">Write a character description for:</h2>
-        <div className="mb-4 p-2 bg-blue-100 rounded">
-          <p className="font-semibold">{assignedPlayer?.name}</p>
+      <div className="p-4 max-w-md mx-auto bg-background-card rounded-xl shadow-md">
+        <h2 className="text-xl font-bold mb-4 text-text-primary">Write a character description for:</h2>
+        <div className="mb-4 p-2 bg-info-bg rounded">
+          <p className="font-semibold text-info-text">{assignedPlayer?.name}</p>
         </div>
         <div className="mb-2">
-          <p className="text-sm text-gray-600 mb-1">Your description will be used to generate {assignedPlayer?.name}'s script.</p>
+          <p className="text-sm text-text-secondary mb-1">Your description will be used to generate {assignedPlayer?.name}'s script.</p>
           <textarea
             value={description}
             onChange={(e) => setDescription(e.target.value)}
-            className="w-full h-32 p-2 border rounded focus:ring focus:ring-blue-300"
+            className="w-full h-32 p-2 border border-border-primary rounded focus:ring focus:ring-brand-primary bg-background-primary text-text-primary"
             placeholder="Describe their character (personality, quirks, motivation, etc.)"
             disabled={hasSubmitted}
           />
@@ -3879,9 +3880,9 @@ export default function Room() {
           {/* Character Counter */}
           <div className="mt-1 flex justify-end items-center">
             <span className={`text-xs ${
-              description.length > 1738 ? 'text-red-600 font-semibold' :
-              description.length > 1500 ? 'text-amber-600' : 
-              'text-gray-500'
+              description.length > 1738 ? 'text-error-text font-semibold' :
+              description.length > 1500 ? 'text-warning-text' : 
+              'text-text-muted'
             }`}>
               {description.length} / 1738 characters
               {description.length > 1738 ? ' (maximum reached)' : 
@@ -3891,7 +3892,7 @@ export default function Room() {
           </div>
         </div>
         <div className="flex justify-between items-center">
-          <span className="text-sm text-gray-500">
+          <span className="text-sm text-text-muted">
             {hasSubmitted ? "Description submitted" : ""}
           </span>
           <button
@@ -3899,15 +3900,15 @@ export default function Room() {
             disabled={!description.trim() || description.length < 100 || description.length > 1738 || hasSubmitted}
             className={`px-4 py-2 rounded ${
               !description.trim() || description.length < 100 || description.length > 1738 || hasSubmitted
-                ? "bg-gray-300 cursor-not-allowed"
-                : "bg-blue-500 hover:bg-blue-600 text-white"
+                ? "bg-background-muted cursor-not-allowed text-text-muted"
+                : "bg-brand-primary hover:bg-brand-secondary text-background-primary"
             }`}
           >
             {hasSubmitted ? "Submitted" : "Submit"}
           </button>
         </div>
         <div className="mt-4">
-          <p className="text-xs text-gray-500">
+          <p className="text-xs text-text-muted">
             <em>⭐ Tip: Best Character Concept vote goes to the most creative description!</em>
           </p>
         </div>
@@ -3963,17 +3964,18 @@ export default function Room() {
     }
     
     return (
-      <main className="h-screen flex flex-col items-center p-6 bg-gray-50">
+      <main className="h-screen flex flex-col items-center p-6 bg-background-secondary">
+        <DarkModeToggle />
         <Link href="/" className="transition-transform hover:scale-105">
-          <h1 className="text-4xl font-bold bg-gradient-to-r from-purple-600 to-pink-500 text-transparent bg-clip-text mb-8">
+          <h1 className="text-4xl font-bold bg-gradient-to-r from-brand-primary to-brand-secondary text-transparent bg-clip-text mb-8">
             PlotTwist
           </h1>
         </Link>
         
         {/* Connection status indicator */}
         {isReconnecting && (
-          <div className="w-full max-w-4xl mb-4 p-3 bg-amber-100 text-amber-800 rounded-lg flex items-center justify-center">
-            <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-amber-800" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+          <div className="w-full max-w-4xl mb-4 p-3 bg-warning-bg text-warning-text rounded-lg flex items-center justify-center">
+            <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-warning-text" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
               <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
               <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
             </svg>
@@ -3982,20 +3984,20 @@ export default function Room() {
         )}
         
         {!isConnected && !isReconnecting && (
-          <div className="w-full max-w-4xl mb-4 p-3 bg-red-100 text-red-800 rounded-lg flex items-center justify-center">
+          <div className="w-full max-w-4xl mb-4 p-3 bg-error-bg text-error-text rounded-lg flex items-center justify-center">
             <span className="mr-2">⚠️</span>
             <span>Connection lost! Please refresh the page if this persists.</span>
           </div>
         )}
         
-        <div className="w-full max-w-4xl bg-white rounded-xl shadow-lg p-8 mb-6">
-          <h2 className="text-2xl font-bold mb-5 text-gray-800 text-center">
+        <div className="w-full max-w-4xl bg-background-card rounded-xl shadow-lg p-8 mb-6">
+          <h2 className="text-2xl font-bold mb-5 text-text-primary text-center">
             The Script
           </h2>
           
           {/* Instructions for all users */}
-          <div className="mb-6 p-4 bg-blue-50 border border-blue-200 rounded-lg text-center">
-            <p className="text-blue-700">
+          <div className="mb-6 p-4 bg-info-bg border border-info-border rounded-lg text-center">
+            <p className="text-info-text">
               {isHost 
                 ? "Read the script together with your group. When everyone is done, click the button below."
                 : "Read the script together. The host will move everyone to the guessing phase when ready."}
@@ -4003,8 +4005,8 @@ export default function Room() {
           </div>
           
           {/* Tip about Best Line Delivery */}
-          <div className="mb-6 p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
-            <p className="text-amber-700 flex items-center justify-center">
+          <div className="mb-6 p-4 bg-warning-bg border border-warning-border rounded-lg">
+            <p className="text-warning-text flex items-center justify-center">
               <span className="mr-2">💡</span>
               <span><strong>Tip:</strong> Project your lines—Best Line Delivery gets a point!</span>
             </p>
@@ -4015,13 +4017,13 @@ export default function Room() {
             "{scriptTitle}"
           </h3> */}
           
-          <div className="p-6 bg-gray-100 rounded-lg mb-6 whitespace-pre-wrap font-serif text-lg leading-relaxed border border-gray-300 max-h-[500px] overflow-y-auto shadow-inner">
+          <div className="p-6 bg-background-muted rounded-lg mb-6 whitespace-pre-wrap font-serif text-lg leading-relaxed border border-border-primary max-h-[500px] overflow-y-auto shadow-inner">
             {generatedScript ? (
               generatedScript.split('\n\n').map((section, index) => {
                 // Format different parts of the script with better styling
                 if (section.startsWith('NARRATOR:')) {
                   return (
-                    <div key={index} className="mb-6 italic text-gray-900 bg-blue-50 p-3 rounded border border-blue-100">
+                    <div key={index} className="mb-6 italic text-text-primary bg-info-bg p-3 rounded border border-info-border">
                       {section}
                     </div>
                   );
@@ -4030,35 +4032,35 @@ export default function Room() {
                   const titleMatch = section.match(/\[TITLE: "(.+?)"\]/);
                   const title = titleMatch ? titleMatch[1] : "Untitled Script";
                   return (
-                    <div key={index} className="mb-6 text-center text-xl font-bold text-indigo-700 italic bg-indigo-50 p-4 rounded-lg border border-indigo-200">
+                    <div key={index} className="mb-6 text-center text-xl font-bold text-brand-primary italic bg-background-muted p-4 rounded-lg border border-border-primary">
                       {title}
                     </div>
                   );
                 } else if (section.startsWith('[')) {
                   return (
-                    <div key={index} className="mb-4 text-sm uppercase tracking-wider text-gray-800 font-semibold bg-gray-200 p-2 rounded">
+                    <div key={index} className="mb-4 text-sm uppercase tracking-wider text-text-primary font-semibold bg-background-secondary p-2 rounded">
                       {section}
                     </div>
                   );
                 } else if (section.includes(':')) {
                   const [character, dialogue] = section.split(':', 2);
                   return (
-                    <div key={index} className="mb-6 bg-white p-4 rounded-lg shadow-sm border border-gray-200">
-                      <div className="font-bold text-blue-800 mb-1">{character}:</div>
-                      <div className="text-gray-900 pl-4">{dialogue}</div>
+                    <div key={index} className="mb-6 bg-background-card p-4 rounded-lg shadow-sm border border-border-primary">
+                      <div className="font-bold text-brand-primary mb-1">{character}:</div>
+                      <div className="text-text-primary pl-4">{dialogue}</div>
                     </div>
                   );
                 } else {
                   return (
-                    <div key={index} className="mb-6 text-gray-900 bg-white p-3 rounded border border-gray-200">
+                    <div key={index} className="mb-6 text-text-primary bg-background-card p-3 rounded border border-border-primary">
                       {section}
                     </div>
                   );
                 }
               })
             ) : (
-              <div className="text-center text-gray-700 p-10">
-                <div className="animate-spin rounded-full h-10 w-10 border-t-2 border-b-2 border-blue-500 mx-auto mb-4"></div>
+              <div className="text-center text-text-secondary p-10">
+                <div className="animate-spin rounded-full h-10 w-10 border-t-2 border-b-2 border-brand-primary mx-auto mb-4"></div>
                 Script loading...
               </div>
             )}
@@ -4068,7 +4070,7 @@ export default function Room() {
             <div className="flex justify-center">
               <button
                 onClick={handleFinishReading}
-                className="px-8 py-3 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-semibold shadow-md transition-colors"
+                className="px-8 py-3 rounded-lg bg-brand-primary hover:bg-brand-secondary text-background-primary font-semibold shadow-md transition-colors"
               >
                 Everyone's Done Reading? Continue to Guessing
               </button>
@@ -4082,10 +4084,10 @@ export default function Room() {
               <div
                 key={player.id}
                 className={`p-4 rounded-lg ${
-                  player.id === playerId ? 'bg-blue-100 border-blue-300 border-2' : 'bg-white'
+                  player.id === playerId ? 'bg-info-bg border-info-border border-2' : 'bg-background-card'
                 } shadow`}
               >
-                <div className="font-semibold text-center truncate">{player.name}</div>
+                <div className="font-semibold text-center truncate text-text-primary">{player.name}</div>
               </div>
             ))}
           </div>
@@ -4103,9 +4105,10 @@ export default function Room() {
     });
 
   return (
-    <main className="h-screen flex flex-col items-center justify-center gap-4">
+    <main className="h-screen flex flex-col items-center justify-center gap-4 bg-background">
+        <DarkModeToggle />
         <Link href="/" className="transition-transform hover:scale-105">
-          <h1 className="text-4xl font-bold bg-gradient-to-r from-purple-600 to-pink-500 text-transparent bg-clip-text">
+          <h1 className="text-4xl font-bold bg-gradient-to-r from-brand-primary to-brand-secondary text-transparent bg-clip-text">
             PlotTwist
           </h1>
         </Link>
@@ -4119,11 +4122,11 @@ export default function Room() {
               handleUsernameSubmit();
             }
           }}
-          className="px-4 py-2 border rounded-lg text-lg capitalize"
+          className="px-4 py-2 border border-border-primary rounded-lg text-lg capitalize bg-background-card text-text-primary"
         />
         <button
           onClick={handleUsernameSubmit}
-          className="px-6 py-3 rounded-lg bg-black text-white text-lg"
+          className="px-6 py-3 rounded-lg bg-text-primary text-background-primary text-lg"
         >
           Join Game
         </button>
@@ -4134,13 +4137,14 @@ export default function Room() {
   // Show loading state while connecting
   if (!isConnected) {
     return (
-      <main className="h-screen flex flex-col items-center justify-center gap-4">
+      <main className="h-screen flex flex-col items-center justify-center gap-4 bg-background">
+        <DarkModeToggle />
         <Link href="/" className="transition-transform hover:scale-105">
-          <h1 className="text-4xl font-bold bg-gradient-to-r from-purple-600 to-pink-500 text-transparent bg-clip-text mb-4">
+          <h1 className="text-4xl font-bold bg-gradient-to-r from-brand-primary to-brand-secondary text-transparent bg-clip-text mb-4">
             PlotTwist
           </h1>
         </Link>
-        <div className="text-xl">Connecting to game...</div>
+        <div className="text-xl text-text-primary">Connecting to game...</div>
       </main>
     );
   }
@@ -4148,18 +4152,19 @@ export default function Room() {
   // Description phase rendering
   if (gamePhase === 'description') {
     return (
-      <main className="h-screen flex flex-col lg:flex-row items-start p-6 bg-gray-50">
+      <main className="h-screen flex flex-col lg:flex-row items-start p-6 bg-background-secondary">
+        <DarkModeToggle />
         <div className="w-full lg:w-2/3 lg:pr-6">
           <Link href="/" className="transition-transform hover:scale-105 inline-block">
-            <h1 className="text-4xl font-bold bg-gradient-to-r from-purple-600 to-pink-500 text-transparent bg-clip-text mb-8">
+            <h1 className="text-4xl font-bold bg-gradient-to-r from-brand-primary to-brand-secondary text-transparent bg-clip-text mb-8">
               PlotTwist
             </h1>
           </Link>
           
           {/* Connection status indicator */}
           {isReconnecting && (
-            <div className="w-full mb-4 p-3 bg-amber-100 text-amber-800 rounded-lg flex items-center justify-center">
-              <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-amber-800" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+            <div className="w-full mb-4 p-3 bg-warning-bg text-warning-text rounded-lg flex items-center justify-center">
+              <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-warning-text" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
                 <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
                 <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
               </svg>
@@ -4168,14 +4173,14 @@ export default function Room() {
           )}
           
           {!isConnected && !isReconnecting && (
-            <div className="w-full mb-4 p-3 bg-red-100 text-red-800 rounded-lg flex items-center justify-center">
+            <div className="w-full mb-4 p-3 bg-error-bg text-error-text rounded-lg flex items-center justify-center">
               <span className="mr-2">⚠️</span>
               <span>Connection lost! Please refresh the page if this persists.</span>
             </div>
           )}
           
-          <div className="w-full bg-white rounded-xl shadow-lg p-8 mb-6">
-            <h2 className="text-2xl font-semibold mb-5 text-gray-800">
+          <div className="w-full bg-background-card rounded-xl shadow-lg p-8 mb-6">
+            <h2 className="text-2xl font-semibold mb-5 text-text-primary">
               Write a character description for:
             </h2>
             
@@ -4189,33 +4194,33 @@ export default function Room() {
         </div>
         
         <div className="w-full lg:w-1/3 lg:pl-6 mt-6 lg:mt-0">
-          <div className="bg-white rounded-xl shadow-lg p-6 mb-6">
-            <h3 className="text-xl font-semibold mb-4 text-gray-800">Players</h3>
+          <div className="bg-background-card rounded-xl shadow-lg p-6 mb-6">
+            <h3 className="text-xl font-semibold mb-4 text-text-primary">Players</h3>
             
             <div className="space-y-3">
               {stablePlayers.map((player) => (
                 <div 
                   key={player.id} 
-                  className="flex flex-col sm:flex-row sm:items-center sm:justify-between p-3 bg-gray-50 rounded-lg"
+                  className="flex flex-col sm:flex-row sm:items-center sm:justify-between p-3 bg-background-muted rounded-lg"
                 >
                   <div className="flex items-center mb-2 sm:mb-0">
-                    <div className="text-lg font-bold text-gray-800 mr-2">{player.name}</div>
+                    <div className="text-lg font-bold text-text-primary mr-2">{player.name}</div>
                     {player.id === hostId && (
-                      <span className="ml-1 text-xs bg-purple-100 text-purple-800 px-2 py-1 rounded">
+                      <span className="ml-1 text-xs bg-brand-primary text-background-primary px-2 py-1 rounded">
                         Host
                       </span>
                     )}
                   </div>
                   
                   {submittedPlayerIds.includes(player.id) ? (
-                      <div className="flex items-center text-green-600 bg-green-50 px-2 py-1 rounded">
+                      <div className="flex items-center text-success-text bg-success-bg px-2 py-1 rounded">
                         <svg className="w-5 h-5 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                         </svg>
                       <span className="text-sm font-medium">Submitted</span>
                       </div>
                     ) : (
-                      <div className="flex items-center text-amber-600 bg-amber-50 px-2 py-1 rounded">
+                      <div className="flex items-center text-warning-text bg-warning-bg px-2 py-1 rounded">
                       <svg className="w-5 h-5 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
                         </svg>
@@ -4228,17 +4233,17 @@ export default function Room() {
           </div>
           
           {isHost && (
-            <div className="bg-white rounded-xl shadow-lg p-6">
-              <h3 className="text-xl font-semibold mb-4 text-gray-800">Host Controls</h3>
+            <div className="bg-background-card rounded-xl shadow-lg p-6">
+              <h3 className="text-xl font-semibold mb-4 text-text-primary">Host Controls</h3>
               
               <button
                 onClick={handleGenerateScript}
                 disabled={!allPlayersSubmitted || isGeneratingScript}
                 className={`w-full py-3 px-4 rounded-lg ${
                   !allPlayersSubmitted || isGeneratingScript
-                    ? 'bg-gray-400 cursor-not-allowed'
-                    : 'bg-blue-600 hover:bg-blue-700 cursor-pointer'
-                } text-white font-semibold shadow-md transition-colors flex justify-center items-center`}
+                    ? 'bg-background-muted cursor-not-allowed text-text-muted'
+                    : 'bg-brand-primary hover:bg-brand-secondary cursor-pointer'
+                } text-background-primary font-semibold shadow-md transition-colors flex justify-center items-center`}
               >
                 {isGeneratingScript ? (
                   <>
@@ -4252,7 +4257,7 @@ export default function Room() {
                 )}
               </button>
               
-              <p className="text-sm text-gray-500 mt-2 text-center">
+              <p className="text-sm text-text-muted mt-2 text-center">
                 {allPlayersSubmitted 
                   ? 'All players are ready! You can generate the script now.'
                   : 'Wait for all players to submit their descriptions.'}
@@ -4260,11 +4265,11 @@ export default function Room() {
               
               {/* Add sync host button if host status seems wrong */}
               {players.length > 0 && players[0].id !== hostId && (
-                <div className="mt-4 pt-4 border-t border-gray-200">
-                  <p className="text-xs text-amber-600 mb-2">Host status may be out of sync</p>
+                <div className="mt-4 pt-4 border-t border-border-primary">
+                  <p className="text-xs text-warning-text mb-2">Host status may be out of sync</p>
                   <button
                     onClick={syncHostStatus}
-                    className="w-full py-2 px-4 bg-gray-200 hover:bg-gray-300 rounded text-gray-700 text-sm"
+                    className="w-full py-2 px-4 bg-background-muted hover:bg-background-secondary rounded text-text-primary text-sm"
                   >
                     Sync Host Status
                   </button>
@@ -4280,17 +4285,18 @@ export default function Room() {
   // Guessing phase UI
   if (gamePhase === 'guessing') {
     return (
-      <main className="h-screen flex flex-col items-center p-6 bg-gray-50">
+      <main className="h-screen flex flex-col items-center p-6 bg-background-secondary">
+        <DarkModeToggle />
         <Link href="/" className="transition-transform hover:scale-105">
-          <h1 className="text-4xl font-bold bg-gradient-to-r from-purple-600 to-pink-500 text-transparent bg-clip-text mb-8">
+          <h1 className="text-4xl font-bold bg-gradient-to-r from-brand-primary to-brand-secondary text-transparent bg-clip-text mb-8">
             PlotTwist
           </h1>
         </Link>
         
         {/* Connection status indicator */}
         {isReconnecting && (
-          <div className="w-full max-w-4xl mb-4 p-3 bg-amber-100 text-amber-800 rounded-lg flex items-center justify-center">
-            <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-amber-800" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+          <div className="w-full max-w-4xl mb-4 p-3 bg-warning-bg text-warning-text rounded-lg flex items-center justify-center">
+            <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-warning-text" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
               <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
               <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
             </svg>
@@ -4299,24 +4305,24 @@ export default function Room() {
         )}
         
         {!isConnected && !isReconnecting && (
-          <div className="w-full max-w-4xl mb-4 p-3 bg-red-100 text-red-800 rounded-lg flex items-center justify-center">
+          <div className="w-full max-w-4xl mb-4 p-3 bg-error-bg text-error-text rounded-lg flex items-center justify-center">
             <span className="mr-2">⚠️</span>
             <span>Connection lost! Please refresh the page if this persists.</span>
           </div>
         )}
         
-        <div className="w-full max-w-4xl bg-white rounded-xl shadow-lg p-8 mb-6">
-          <h2 className="text-2xl font-bold mb-2 text-gray-800 text-center">
+        <div className="w-full max-w-4xl bg-background-card rounded-xl shadow-lg p-8 mb-6">
+          <h2 className="text-2xl font-bold mb-2 text-text-primary text-center">
             Voting Time!
           </h2>
           
-          <p className="text-gray-700 mb-6 text-center">
+          <p className="text-text-secondary mb-6 text-center">
             Vote for your favorite performances and guess who wrote your character.
           </p>
           
           {/* Scoring Banner - Added for clearer point attribution */}
-          <div className="w-full p-3 bg-indigo-50 border border-indigo-100 rounded-lg mb-6 text-center">
-            <p className="text-indigo-800 italic text-sm md:text-base font-medium">
+          <div className="w-full p-3 bg-info-bg border border-info-border rounded-lg mb-6 text-center">
+            <p className="text-info-text italic text-sm md:text-base font-medium">
               3 points for correctly guessing who wrote your description.
               1 point per vote received for Best Concept and Best Delivery.
             </p>
@@ -4328,15 +4334,15 @@ export default function Room() {
           </div>
           
           {/* Section A: Who wrote your description? */}
-          <div className="mb-8 bg-blue-50 rounded-lg p-6 border-2 border-blue-100">
-            <h3 className="text-xl font-bold text-blue-800 mb-4 flex items-center">
-              <span className="bg-blue-200 text-blue-800 w-8 h-8 rounded-full flex items-center justify-center mr-3">
+          <div className="mb-8 bg-info-bg rounded-lg p-6 border-2 border-info-border">
+            <h3 className="text-xl font-bold text-info-text mb-4 flex items-center">
+              <span className="bg-info-border text-info-text w-8 h-8 rounded-full flex items-center justify-center mr-3">
                 A
               </span>
               <span>Who wrote YOUR character description?</span>
             </h3>
             
-            <div className="mb-2 text-gray-700">
+            <div className="mb-2 text-text-secondary">
               <p>Your character: <span className="font-semibold">{username}</span></p>
             </div>
             
@@ -4344,9 +4350,9 @@ export default function Room() {
               value={guessAuthorId}
               onChange={(e) => setGuessAuthorId(e.target.value)}
               disabled={submittedGuesses}
-              className={`w-full p-3 border rounded-lg text-lg ${
-                submittedGuesses ? 'bg-gray-100' : 'bg-white'
-              }`}
+              className={`w-full p-3 border border-border-primary rounded-lg text-lg ${
+                submittedGuesses ? 'bg-background-muted' : 'bg-background-primary'
+              } text-text-primary`}
             >
               <option value="">Select who you think wrote your description...</option>
               {stablePlayers
@@ -4360,7 +4366,7 @@ export default function Room() {
             </select>
             
             {submittedGuesses && guessAuthorId && (
-              <div className="mt-3 text-green-700 font-medium flex items-center">
+              <div className="mt-3 text-success-text font-medium flex items-center">
                 <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                 </svg>
@@ -4370,15 +4376,15 @@ export default function Room() {
           </div>
           
           {/* Section B: Best Character Concept */}
-          <div className="mb-8 bg-amber-50 rounded-lg p-6 border-2 border-amber-100">
-            <h3 className="text-xl font-bold text-amber-800 mb-4 flex items-center">
-              <span className="bg-amber-200 text-amber-800 w-8 h-8 rounded-full flex items-center justify-center mr-3">
+          <div className="mb-8 bg-warning-bg rounded-lg p-6 border-2 border-warning-border">
+            <h3 className="text-xl font-bold text-warning-text mb-4 flex items-center">
+              <span className="bg-warning-border text-warning-text w-8 h-8 rounded-full flex items-center justify-center mr-3">
                 B
               </span>
               <span>Best Character Concept</span>
             </h3>
             
-            <p className="mb-4 text-gray-700">
+            <p className="mb-4 text-text-secondary">
               Vote for the most creative character concept in the story.
             </p>
             
@@ -4386,9 +4392,9 @@ export default function Room() {
               value={bestConceptDescId}
               onChange={(e) => setBestConceptDescId(e.target.value)}
               disabled={submittedGuesses}
-              className={`w-full p-3 border rounded-lg text-lg ${
-                submittedGuesses ? 'bg-gray-100' : 'bg-white'
-              }`}
+              className={`w-full p-3 border border-border-primary rounded-lg text-lg ${
+                submittedGuesses ? 'bg-background-muted' : 'bg-background-primary'
+              } text-text-primary`}
             >
               <option value="">Select a character...</option>
               {stablePlayers
@@ -4402,7 +4408,7 @@ export default function Room() {
             </select>
             
             {submittedGuesses && bestConceptDescId && (
-              <div className="mt-3 text-green-700 font-medium flex items-center">
+              <div className="mt-3 text-success-text font-medium flex items-center">
                 <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                 </svg>
@@ -4412,15 +4418,15 @@ export default function Room() {
           </div>
           
           {/* Section C: Best Line Delivery */}
-          <div className="mb-8 bg-purple-50 rounded-lg p-6 border-2 border-purple-100">
-            <h3 className="text-xl font-bold text-purple-800 mb-4 flex items-center">
-              <span className="bg-purple-200 text-purple-800 w-8 h-8 rounded-full flex items-center justify-center mr-3">
+          <div className="mb-8 bg-background-muted rounded-lg p-6 border-2 border-border-primary">
+            <h3 className="text-xl font-bold text-brand-primary mb-4 flex items-center">
+              <span className="bg-brand-primary text-background-primary w-8 h-8 rounded-full flex items-center justify-center mr-3">
                 C
               </span>
               <span>Best Line Delivery</span>
             </h3>
             
-            <p className="mb-4 text-gray-700">
+            <p className="mb-4 text-text-secondary">
               Who had the best delivery during the table read?
             </p>
             
@@ -4428,9 +4434,9 @@ export default function Room() {
               value={bestDeliveryPlayerId}
               onChange={(e) => setBestDeliveryPlayerId(e.target.value)}
               disabled={submittedGuesses}
-              className={`w-full p-3 border rounded-lg text-lg ${
-                submittedGuesses ? 'bg-gray-100' : 'bg-white'
-              }`}
+              className={`w-full p-3 border border-border-primary rounded-lg text-lg ${
+                submittedGuesses ? 'bg-background-muted' : 'bg-background-primary'
+              } text-text-primary`}
             >
               <option value="">Select an actor...</option>
               {stablePlayers
@@ -4444,7 +4450,7 @@ export default function Room() {
             </select>
             
             {submittedGuesses && bestDeliveryPlayerId && (
-              <div className="mt-3 text-green-700 font-medium flex items-center">
+              <div className="mt-3 text-success-text font-medium flex items-center">
                 <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                 </svg>
@@ -4459,8 +4465,8 @@ export default function Room() {
               disabled={submittedGuesses || !guessAuthorId || !bestConceptDescId || !bestDeliveryPlayerId}
               className={`px-10 py-4 rounded-lg text-lg font-bold shadow-lg transition-all transform hover:scale-105 ${
                 submittedGuesses || !guessAuthorId || !bestConceptDescId || !bestDeliveryPlayerId
-                  ? 'bg-gray-400 cursor-not-allowed'
-                  : 'bg-green-600 hover:bg-green-700 text-white cursor-pointer'
+                  ? 'bg-background-muted cursor-not-allowed text-text-muted'
+                  : 'bg-success-text hover:bg-success-border text-background-primary cursor-pointer'
               }`}
             >
               {submittedGuesses ? (
@@ -4478,8 +4484,8 @@ export default function Room() {
           
           {/* Add success message for clearer feedback */}
           {submittedGuesses && (
-            <div className="mt-4 p-4 bg-green-50 border border-green-200 rounded-lg text-center">
-              <p className="flex items-center justify-center text-green-700 font-medium">
+            <div className="mt-4 p-4 bg-success-bg border border-success-border rounded-lg text-center">
+              <p className="flex items-center justify-center text-success-text font-medium">
                 <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                 </svg>
@@ -4489,32 +4495,32 @@ export default function Room() {
           )}
           
           {(!guessAuthorId || !bestConceptDescId || !bestDeliveryPlayerId) && !submittedGuesses && (
-            <p className="text-center text-amber-600 mt-4">
+            <p className="text-center text-warning-text mt-4">
               You need to complete all three sections before submitting
             </p>
           )}
         </div>
         
-        <div className="w-full max-w-4xl bg-white rounded-lg p-4 shadow">
-          <h3 className="text-lg font-semibold mb-3 text-gray-700">Players Status</h3>
+        <div className="w-full max-w-4xl bg-background-card rounded-lg p-4 shadow">
+          <h3 className="text-lg font-semibold mb-3 text-text-primary">Players Status</h3>
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
             {stablePlayers.map((player) => (
               <div
                 key={player.id}
                 className={`p-3 rounded-lg ${
                   player.id === playerId 
-                    ? 'bg-blue-100 border-2 border-blue-300 text-blue-800' 
-                    : 'bg-gray-50 border border-gray-200 text-gray-800'
+                    ? 'bg-info-bg border-2 border-info-border text-info-text' 
+                    : 'bg-background-muted border border-border-primary text-text-primary'
                 }`}
               >
                 <div className="font-bold text-lg text-center">{player.name}</div>
                 {player.id === playerId && (
-                  <div className="text-xs text-center mt-1 text-blue-600">You</div>
+                  <div className="text-xs text-center mt-1 text-info-text">You</div>
                 )}
                 <div className={`mt-2 text-center text-sm px-2 py-1 rounded-full 
                   ${guessSubmittedPlayerIds.includes(player.id)
-                    ? 'bg-green-100 text-green-800' 
-                    : 'bg-amber-100 text-amber-800'}`}
+                    ? 'bg-success-bg text-success-text' 
+                    : 'bg-warning-bg text-warning-text'}`}
                 >
                   {guessSubmittedPlayerIds.includes(player.id) ? 'Submitted' : 'Pending'}
                 </div>
@@ -4763,16 +4769,17 @@ export default function Room() {
 
   // Lobby phase rendering (default)
   return (
-    <main className="h-screen flex flex-col items-center justify-center gap-6">
+    <main className="h-screen flex flex-col items-center justify-center gap-6 bg-background">
+      <DarkModeToggle />
       {/* Connection status indicator - place at the top */}
       {(isReconnecting || !isConnected) && (
         <div className={`fixed top-4 left-1/2 transform -translate-x-1/2 p-3 rounded-lg z-50 ${
-          isReconnecting ? 'bg-amber-100 text-amber-800' : 'bg-red-100 text-red-800'
+          isReconnecting ? 'bg-warning-bg text-warning-text' : 'bg-error-bg text-error-text'
         }`}>
           <div className="flex items-center">
             {isReconnecting ? (
               <>
-                <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-amber-800" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-warning-text" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
                   <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
                   <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                 </svg>
@@ -4791,18 +4798,18 @@ export default function Room() {
       <div className="flex items-center gap-8">
         <div className="flex flex-col items-center gap-4">
           <Link href="/" className="transition-transform hover:scale-105">
-            <h1 className="text-4xl font-bold bg-gradient-to-r from-purple-600 to-pink-500 text-transparent bg-clip-text">
+            <h1 className="text-4xl font-bold bg-gradient-to-r from-brand-primary to-brand-secondary text-transparent bg-clip-text">
               PlotTwist
             </h1>
           </Link>
           <div className="flex flex-col items-center gap-3">
-            <span className="text-lg text-gray-600">Room Code:</span>
-            <code className="text-2xl font-mono font-bold bg-gradient-to-r from-blue-500 to-purple-500 text-transparent bg-clip-text">
+            <span className="text-lg text-text-secondary">Room Code:</span>
+            <code className="text-2xl font-mono font-bold bg-gradient-to-r from-brand-primary to-brand-secondary text-transparent bg-clip-text">
               {slug}
             </code>
             <button
               onClick={handleCopyLink}
-              className="px-6 py-3 rounded-lg bg-black text-white hover:bg-gray-800 transition-colors text-lg font-semibold shadow-lg hover:shadow-xl transform hover:-translate-y-0.5 transition-all"
+              className="px-6 py-3 rounded-lg bg-text-primary text-background-primary hover:bg-text-secondary transition-colors text-lg font-semibold shadow-lg hover:shadow-xl transform hover:-translate-y-0.5 transition-all"
             >
               {copied ? "Copied!" : "Copy Link"}
             </button>
@@ -4810,15 +4817,15 @@ export default function Room() {
         </div>
 
         {isHost && gamePhase === 'lobby' && (
-          <div className="flex flex-col gap-4 p-4 bg-gray-100 rounded-lg shadow-md">
-            <h2 className="text-lg font-semibold text-gray-800">Game Settings</h2>
+          <div className="flex flex-col gap-4 p-4 bg-background-card rounded-lg shadow-md">
+            <h2 className="text-lg font-semibold text-text-primary">Game Settings</h2>
             <div className="flex flex-col gap-3">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Tone</label>
+                <label className="block text-sm font-medium text-text-secondary mb-1">Tone</label>
                 <select
                   value={gameSettings.tone}
                   onChange={(e) => handleSettingChange('tone', e.target.value as GameSettings['tone'])}
-                  className="w-full px-3 py-2 border rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-purple-500 bg-white text-gray-900"
+                  className="w-full px-3 py-2 border border-border-primary rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-brand-primary bg-background-primary text-text-primary"
                 >
                   <option value="Funny">Funny</option>
                   <option value="Serious">Serious</option>
@@ -4826,11 +4833,11 @@ export default function Room() {
                 </select>
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Scene</label>
+                <label className="block text-sm font-medium text-text-secondary mb-1">Scene</label>
                 <select
                   value={gameSettings.scene}
                   onChange={(e) => handleSettingChange('scene', e.target.value as GameSettings['scene'])}
-                  className="w-full px-3 py-2 border rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-purple-500 bg-white text-gray-900"
+                  className="w-full px-3 py-2 border border-border-primary rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-brand-primary bg-background-primary text-text-primary"
                 >
                   <option value="Party">Party</option>
                   <option value="Coffee Shop">Coffee Shop</option>
@@ -4838,11 +4845,11 @@ export default function Room() {
                 </select>
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Length</label>
+                <label className="block text-sm font-medium text-text-secondary mb-1">Length</label>
                 <select
                   value={gameSettings.length}
                   onChange={(e) => handleSettingChange('length', e.target.value as GameSettings['length'])}
-                  className="w-full px-3 py-2 border rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-purple-500 bg-white text-gray-900"
+                  className="w-full px-3 py-2 border border-border-primary rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-brand-primary bg-background-primary text-text-primary"
                 >
                   <option value="Short">Short</option>
                   <option value="Medium">Medium</option>
@@ -4854,9 +4861,9 @@ export default function Room() {
                 disabled={players.length < 2}
                 className={`mt-2 px-6 py-3 rounded-lg ${
                   players.length < 2 
-                    ? 'bg-gray-400 cursor-not-allowed' 
-                    : 'bg-purple-600 hover:bg-purple-700 cursor-pointer'
-                } text-white transition-colors text-lg font-semibold shadow-lg hover:shadow-xl transform hover:-translate-y-0.5 transition-all`}
+                    ? 'bg-background-muted cursor-not-allowed text-text-muted' 
+                    : 'bg-brand-primary hover:bg-brand-secondary cursor-pointer'
+                } text-background-primary transition-colors text-lg font-semibold shadow-lg hover:shadow-xl transform hover:-translate-y-0.5 transition-all`}
               >
                 {players.length < 2 ? "Need More Players" : "Start Game"}
               </button>
@@ -4866,14 +4873,14 @@ export default function Room() {
 
         {/* Display for non-host who should be host based on join time */}
         {!isHost && gamePhase === 'lobby' && players.length > 0 && players[0].id === playerId && (
-          <div className="flex flex-col gap-4 p-4 bg-yellow-50 border border-yellow-200 rounded-lg shadow-md">
-            <h2 className="text-lg font-semibold text-amber-700">Host Status Issue</h2>
-            <p className="text-sm text-amber-600">
+          <div className="flex flex-col gap-4 p-4 bg-warning-bg border border-warning-border rounded-lg shadow-md">
+            <h2 className="text-lg font-semibold text-warning-text">Host Status Issue</h2>
+            <p className="text-sm text-warning-text">
               You should be the host (first player), but your host status is not active.
             </p>
             <button
               onClick={syncHostStatus}
-              className="px-4 py-2 bg-amber-500 hover:bg-amber-600 text-white rounded-md"
+              className="px-4 py-2 bg-warning-text hover:bg-warning-border text-background-primary rounded-md"
             >
               Claim Host Status
             </button>
@@ -4881,16 +4888,16 @@ export default function Room() {
         )}
 
         {isHost && gamePhase !== 'lobby' && (
-          <div className="flex flex-col gap-4 p-4 bg-gray-100 rounded-lg shadow-md">
-            <h2 className="text-lg font-semibold text-gray-800">Game Settings</h2>
+          <div className="flex flex-col gap-4 p-4 bg-background-card rounded-lg shadow-md">
+            <h2 className="text-lg font-semibold text-text-primary">Game Settings</h2>
             <div className="flex flex-col gap-3">
-              <div className="text-gray-700">
+              <div className="text-text-secondary">
                 <span className="font-medium">Tone:</span> {gameSettings.tone}
               </div>
-              <div className="text-gray-700">
+              <div className="text-text-secondary">
                 <span className="font-medium">Scene:</span> {gameSettings.scene}
               </div>
-              <div className="text-gray-700">
+              <div className="text-text-secondary">
                 <span className="font-medium">Length:</span> {gameSettings.length}
               </div>
             </div>
@@ -4900,24 +4907,24 @@ export default function Room() {
 
       {gamePhase === 'lobby' && (
         <>
-          <h2 className="text-2xl font-semibold">Players</h2>
-          <div className="mb-4 text-center">
+          <h2 className="text-2xl font-semibold text-text-primary">Players</h2>
+          <div className="mb-4 text-center text-text-secondary">
             <strong>{players.length}</strong> players in the room
           </div>
           <ul className="text-xl">
             {stablePlayers.map((p) => (
-              <li key={p.id} className="py-1 flex items-center gap-2">
+              <li key={p.id} className="py-1 flex items-center gap-2 text-text-primary">
                 <span className="text-base">—</span>
                 {p.name}
                 {p.id === hostId && (
-                  <span className="text-sm px-2 py-0.5 bg-purple-500 text-white rounded-full">
+                  <span className="text-sm px-2 py-0.5 bg-brand-primary text-background-primary rounded-full">
                     Host
                   </span>
                 )}
                 {isHost && p.id !== hostId && (
                   <button
                     onClick={() => handleKickPlayer(p.id)}
-                    className="text-red-500 hover:text-red-700 transition-colors"
+                    className="text-error-text hover:text-error-border transition-colors"
                     title="Kick player"
                   >
                     ❌

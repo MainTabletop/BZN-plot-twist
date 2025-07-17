@@ -1,26 +1,121 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  /* Light mode colors */
+  --background-primary: #ffffff;
+  --background-secondary: #f9fafb;
+  --background-card: #ffffff;
+  --background-muted: #f3f4f6;
+  
+  --text-primary: #111827;
+  --text-secondary: #6b7280;
+  --text-muted: #9ca3af;
+  
+  --border-primary: #e5e7eb;
+  --border-secondary: #d1d5db;
+  
+  /* Status colors - light mode */
+  --success-bg: #f0fdf4;
+  --success-text: #166534;
+  --success-border: #bbf7d0;
+  
+  --warning-bg: #fffbeb;
+  --warning-text: #92400e;
+  --warning-border: #fde68a;
+  
+  --error-bg: #fef2f2;
+  --error-text: #dc2626;
+  --error-border: #fecaca;
+  
+  --info-bg: #eff6ff;
+  --info-text: #1d4ed8;
+  --info-border: #bfdbfe;
+  
+  /* Brand colors */
+  --brand-primary: #8b5cf6;
+  --brand-secondary: #ec4899;
+}
+
+.dark {
+  /* Dark mode colors */
+  --background-primary: #0f172a;
+  --background-secondary: #1e293b;
+  --background-card: #334155;
+  --background-muted: #475569;
+  
+  --text-primary: #f8fafc;
+  --text-secondary: #cbd5e1;
+  --text-muted: #94a3b8;
+  
+  --border-primary: #475569;
+  --border-secondary: #64748b;
+  
+  /* Status colors - dark mode */
+  --success-bg: #064e3b;
+  --success-text: #6ee7b7;
+  --success-border: #059669;
+  
+  --warning-bg: #451a03;
+  --warning-text: #fbbf24;
+  --warning-border: #d97706;
+  
+  --error-bg: #450a0a;
+  --error-text: #fca5a5;
+  --error-border: #dc2626;
+  
+  --info-bg: #1e3a8a;
+  --info-text: #93c5fd;
+  --info-border: #3b82f6;
+  
+  /* Brand colors remain the same */
+  --brand-primary: #8b5cf6;
+  --brand-secondary: #ec4899;
 }
 
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
+  /* Background colors */
+  --color-background: var(--background-primary);
+  --color-background-secondary: var(--background-secondary);
+  --color-background-card: var(--background-card);
+  --color-background-muted: var(--background-muted);
+  
+  /* Text colors */
+  --color-text-primary: var(--text-primary);
+  --color-text-secondary: var(--text-secondary);
+  --color-text-muted: var(--text-muted);
+  
+  /* Border colors */
+  --color-border-primary: var(--border-primary);
+  --color-border-secondary: var(--border-secondary);
+  
+  /* Status colors */
+  --color-success-bg: var(--success-bg);
+  --color-success-text: var(--success-text);
+  --color-success-border: var(--success-border);
+  
+  --color-warning-bg: var(--warning-bg);
+  --color-warning-text: var(--warning-text);
+  --color-warning-border: var(--warning-border);
+  
+  --color-error-bg: var(--error-bg);
+  --color-error-text: var(--error-text);
+  --color-error-border: var(--error-border);
+  
+  --color-info-bg: var(--info-bg);
+  --color-info-text: var(--info-text);
+  --color-info-border: var(--info-border);
+  
+  /* Brand colors */
+  --color-brand-primary: var(--brand-primary);
+  --color-brand-secondary: var(--brand-secondary);
+  
+  /* Fonts */
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
-}
-
 body {
-  background: var(--background);
-  color: var(--foreground);
+  background: var(--background-primary);
+  color: var(--text-primary);
   font-family: Arial, Helvetica, sans-serif;
 }
