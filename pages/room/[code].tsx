@@ -62,6 +62,7 @@ export default function Room() {
   const [generatedScript, setGeneratedScript] = useState<string>("");
   const [scriptTitle, setScriptTitle] = useState<string>("");
   const [isGeneratingScript, setIsGeneratingScript] = useState(false);
+  const [scriptGenerationError, setScriptGenerationError] = useState(false);
   const [currentLineIndex, setCurrentLineIndex] = useState(0);
   const [playerGuesses, setPlayerGuesses] = useState<Record<string, string>>({});
   const [submittedGuesses, setSubmittedGuesses] = useState(false);
@@ -2599,6 +2600,7 @@ export default function Room() {
     
     // Set generation state to show loading UI
     setIsGeneratingScript(true);
+    setScriptGenerationError(false);
     
     try {
       // Get simplified player info for the API
@@ -2670,10 +2672,15 @@ export default function Room() {
       
     } catch (error) {
       console.error('ERROR generating script:', error);
-      alert('Failed to generate script. Please try again.');
+      setScriptGenerationError(true);
     } finally {
       setIsGeneratingScript(false);
     }
+  };
+
+  const handleRetryScriptGeneration = () => {
+    setScriptGenerationError(false);
+    handleGenerateScript();
   };
 
   const handleKickPlayer = async (playerId: string) => {
@@ -3823,6 +3830,42 @@ export default function Room() {
   }, [assignedPlayer, playerAssignments, playerId, gamePhase, players]);
 
   // Fix the description phase UI to show loading correctly and handle assignment state
+  // ScriptLoading component with error handling and accessibility
+  const ScriptLoading = ({ error, onRetry }: { error?: boolean; onRetry?: () => void }) => (
+    <div className="fixed inset-0 bg-background-secondary/75 flex items-center justify-center z-50">
+      <div className="bg-background-card rounded-xl shadow-lg p-4 sm:p-8 max-w-md mx-4">
+        <div role="status" aria-live="polite" className="flex flex-col items-center space-y-4">
+          <span className="sr-only">Generating script, please wait...</span>
+          {error ? (
+            <>
+              <span className="text-4xl">❌</span>
+              <h3 className="text-xl font-semibold text-error-text">Failed to Generate Script</h3>
+              <p className="text-text-secondary text-center">Something went wrong. Please try again.</p>
+              {onRetry && (
+                <button 
+                  onClick={onRetry} 
+                  className="px-4 py-2 bg-brand-primary hover:bg-brand-secondary text-background-primary rounded transition-colors"
+                >
+                  Try Again
+                </button>
+              )}
+            </>
+          ) : (
+            <>
+              <svg className="w-12 h-12 animate-spin text-brand-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+              </svg>
+              <h3 className="text-xl font-semibold text-text-primary">Generating Script...</h3>
+              <p className="text-text-secondary text-center">
+                Creating your story with AI. This may take a few moments.
+              </p>
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+
   const renderDescriptionPhase = () => {
     // If we don't have an assignment yet, show loading state
     if (!assignedPlayer) {
@@ -3862,7 +3905,7 @@ export default function Room() {
     
     // Rest of the existing description phase UI
     return (
-      <div className="p-4 w-full max-w-2xl mx-auto bg-background-card rounded-xl shadow-md">
+      <div className="p-4 w-full bg-background-card rounded-xl shadow-md">
         <h2 className="text-xl font-bold mb-4 text-text-primary">Write a character description for:</h2>
         <div className="mb-4 p-2 bg-info-bg rounded">
           <p className="font-semibold text-info-text">{assignedPlayer?.name}</p>
@@ -4154,6 +4197,14 @@ export default function Room() {
     return (
       <main className="h-screen flex flex-col lg:flex-row items-start p-4 sm:p-6 lg:p-8 bg-background-secondary">
         <DarkModeToggle />
+        
+        {/* Script Generation Loading Overlay */}
+        {(isGeneratingScript || scriptGenerationError) && (
+          <ScriptLoading 
+            error={scriptGenerationError} 
+            onRetry={scriptGenerationError ? handleRetryScriptGeneration : undefined}
+          />
+        )}
         <div className="w-full lg:w-2/3 lg:pr-6">
           <Link href="/" className="transition-transform hover:scale-105 inline-block">
             <h1 className="text-4xl font-bold bg-gradient-to-r from-brand-primary to-brand-secondary text-transparent bg-clip-text mb-8">
