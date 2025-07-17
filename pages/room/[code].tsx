@@ -3964,7 +3964,7 @@ export default function Room() {
     }
     
     return (
-      <main className="h-screen flex flex-col items-center p-6 bg-background-secondary">
+      <main className="h-screen flex flex-col items-center p-4 sm:p-6 lg:p-8 bg-background-secondary">
         <DarkModeToggle />
         <Link href="/" className="transition-transform hover:scale-105">
           <h1 className="text-4xl font-bold bg-gradient-to-r from-brand-primary to-brand-secondary text-transparent bg-clip-text mb-8">
@@ -3990,8 +3990,8 @@ export default function Room() {
           </div>
         )}
         
-        <div className="w-full max-w-4xl bg-background-card rounded-xl shadow-lg p-8 mb-6">
-          <h2 className="text-2xl font-bold mb-5 text-text-primary text-center">
+        <div className="w-full max-w-4xl bg-background-card rounded-xl shadow-lg p-4 sm:p-6 lg:p-8 mb-6">
+          <h2 className="text-xl sm:text-2xl font-bold mb-5 text-text-primary text-center">
             The Script
           </h2>
           
@@ -4105,7 +4105,7 @@ export default function Room() {
     });
 
   return (
-    <main className="h-screen flex flex-col items-center justify-center gap-4 bg-background">
+    <main className="h-screen flex flex-col items-center justify-center gap-4 bg-background px-4 sm:px-6 lg:px-8">
         <DarkModeToggle />
         <Link href="/" className="transition-transform hover:scale-105">
           <h1 className="text-4xl font-bold bg-gradient-to-r from-brand-primary to-brand-secondary text-transparent bg-clip-text">
@@ -4126,7 +4126,7 @@ export default function Room() {
         />
         <button
           onClick={handleUsernameSubmit}
-          className="px-6 py-3 rounded-lg bg-text-primary text-background-primary text-lg"
+          className="px-6 py-3 rounded-lg bg-brand-primary text-white text-lg"
         >
           Join Game
         </button>
@@ -4137,7 +4137,7 @@ export default function Room() {
   // Show loading state while connecting
   if (!isConnected) {
     return (
-      <main className="h-screen flex flex-col items-center justify-center gap-4 bg-background">
+      <main className="h-screen flex flex-col items-center justify-center gap-4 bg-background px-4 sm:px-6 lg:px-8">
         <DarkModeToggle />
         <Link href="/" className="transition-transform hover:scale-105">
           <h1 className="text-4xl font-bold bg-gradient-to-r from-brand-primary to-brand-secondary text-transparent bg-clip-text mb-4">
@@ -4152,7 +4152,7 @@ export default function Room() {
   // Description phase rendering
   if (gamePhase === 'description') {
     return (
-      <main className="h-screen flex flex-col lg:flex-row items-start p-6 bg-background-secondary">
+      <main className="h-screen flex flex-col lg:flex-row items-start p-4 sm:p-6 lg:p-8 bg-background-secondary">
         <DarkModeToggle />
         <div className="w-full lg:w-2/3 lg:pr-6">
           <Link href="/" className="transition-transform hover:scale-105 inline-block">
@@ -4285,7 +4285,7 @@ export default function Room() {
   // Guessing phase UI
   if (gamePhase === 'guessing') {
     return (
-      <main className="h-screen flex flex-col items-center p-6 bg-background-secondary">
+      <main className="h-screen flex flex-col items-center p-4 sm:p-6 lg:p-8 bg-background-secondary">
         <DarkModeToggle />
         <Link href="/" className="transition-transform hover:scale-105">
           <h1 className="text-4xl font-bold bg-gradient-to-r from-brand-primary to-brand-secondary text-transparent bg-clip-text mb-8">
@@ -4311,8 +4311,8 @@ export default function Room() {
           </div>
         )}
         
-        <div className="w-full max-w-4xl bg-background-card rounded-xl shadow-lg p-8 mb-6">
-          <h2 className="text-2xl font-bold mb-2 text-text-primary text-center">
+        <div className="w-full max-w-4xl bg-background-card rounded-xl shadow-lg p-4 sm:p-6 lg:p-8 mb-6">
+          <h2 className="text-xl sm:text-2xl font-bold mb-2 text-text-primary text-center">
             Voting Time!
           </h2>
           
@@ -4420,7 +4420,7 @@ export default function Room() {
           {/* Section C: Best Line Delivery */}
           <div className="mb-8 bg-background-muted rounded-lg p-6 border-2 border-border-primary">
             <h3 className="text-xl font-bold text-brand-primary mb-4 flex items-center">
-              <span className="bg-brand-primary text-background-primary w-8 h-8 rounded-full flex items-center justify-center mr-3">
+              <span className="bg-brand-primary text-white w-8 h-8 rounded-full flex items-center justify-center mr-3">
                 C
               </span>
               <span>Best Line Delivery</span>
@@ -4558,17 +4558,18 @@ export default function Room() {
     });
     
     return (
-      <main className="h-screen flex flex-col items-center p-6 bg-gray-50">
+      <main className="h-screen flex flex-col items-center p-4 sm:p-6 lg:p-8 bg-background-secondary">
+        <DarkModeToggle />
         <Link href="/" className="transition-transform hover:scale-105">
-          <h1 className="text-4xl font-bold bg-gradient-to-r from-purple-600 to-pink-500 text-transparent bg-clip-text mb-8">
+          <h1 className="text-4xl font-bold bg-gradient-to-r from-brand-primary to-brand-secondary text-transparent bg-clip-text mb-8">
             PlotTwist
           </h1>
         </Link>
         
         {/* Connection status indicator */}
         {isReconnecting && (
-          <div className="w-full max-w-4xl mb-4 p-3 bg-amber-100 text-amber-800 rounded-lg flex items-center justify-center">
-            <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-amber-800" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+          <div className="w-full max-w-4xl mb-4 p-3 bg-warning-bg text-warning-text rounded-lg flex items-center justify-center">
+            <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-warning-text" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
               <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
               <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
             </svg>
@@ -4577,20 +4578,20 @@ export default function Room() {
         )}
         
         {!isConnected && !isReconnecting && (
-          <div className="w-full max-w-4xl mb-4 p-3 bg-red-100 text-red-800 rounded-lg flex items-center justify-center">
+          <div className="w-full max-w-4xl mb-4 p-3 bg-error-bg text-error-text rounded-lg flex items-center justify-center">
             <span className="mr-2">⚠️</span>
             <span>Connection lost! Please refresh the page if this persists.</span>
           </div>
         )}
         
-        <div className="w-full max-w-4xl bg-white rounded-xl shadow-lg p-8 mb-6">
-          <h2 className="text-3xl font-bold mb-4 text-gray-800 text-center">
+        <div className="w-full max-w-4xl bg-background-card rounded-xl shadow-lg p-4 sm:p-6 lg:p-8 mb-6">
+          <h2 className="text-2xl sm:text-3xl font-bold mb-4 text-text-primary text-center">
             Game Results
           </h2>
           
-          <div className="mb-8 p-4 bg-indigo-50 rounded-lg border border-indigo-100 flex items-center justify-center">
-            <div className="text-indigo-800 text-lg">
-              Thanks for playing PlotTwist! Who will win the awards?
+          <div className="mb-8 p-4 bg-info-bg rounded-lg border border-info-border flex items-center justify-center">
+            <div className="text-info-text text-lg">
+              Thanks for playing PlotTwist!
             </div>
           </div>
           
@@ -4608,8 +4609,8 @@ export default function Room() {
           
           <div className="space-y-10">
             {/* Player Scoreboard */}
-            <div className="bg-gradient-to-r from-indigo-50 to-purple-50 rounded-xl p-6 border border-indigo-100">
-              <h3 className="text-2xl font-bold mb-6 text-indigo-800 text-center">
+            <div className="bg-background-muted rounded-xl p-6 border border-border-primary">
+              <h3 className="text-xl sm:text-2xl font-bold mb-6 text-text-primary text-center">
                 Final Scores
               </h3>
               
@@ -4671,8 +4672,8 @@ export default function Room() {
             </div>
             
             {/* Awards Section */}
-            <div className="bg-gradient-to-r from-amber-50 to-yellow-50 rounded-xl p-6 border border-amber-100">
-              <h3 className="text-2xl font-bold mb-6 text-amber-800 text-center">Special Awards</h3>
+            <div className="bg-warning-bg rounded-xl p-6 border border-warning-border">
+              <h3 className="text-xl sm:text-2xl font-bold mb-6 text-warning-text text-center">Special Awards</h3>
               
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 {/* Best Character Concept Award */}
@@ -4715,8 +4716,8 @@ export default function Room() {
           </div>
           
           {/* Character Writers Section */}
-          <div className="mt-10 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-xl p-6 border border-blue-100">
-            <h3 className="text-2xl font-bold mb-6 text-blue-800 text-center">Character Writers</h3>
+          <div className="mt-10 bg-info-bg rounded-xl p-6 border border-info-border">
+            <h3 className="text-xl sm:text-2xl font-bold mb-6 text-info-text text-center">Character Writers</h3>
             
             <div className="grid grid-cols-1 gap-3">
               {playerAssignments.map((assignment) => {
@@ -4731,18 +4732,18 @@ export default function Room() {
                     key={`${assignment.playerId}-${assignment.assignedPlayerId}`}
                     className={`p-4 rounded-lg flex items-center justify-between ${
                       isConceptWinner 
-                        ? 'bg-gradient-to-r from-amber-50 to-amber-100 border border-amber-200' 
-                        : 'bg-white border border-gray-100'
+                        ? 'bg-warning-bg border border-warning-border' 
+                        : 'bg-background-card border border-border-primary'
                     }`}
                   >
                     <div className="flex items-center">
-                      <span className="font-semibold">{writer.name}</span>
-                      <span className="mx-2 text-gray-500">wrote for</span>
-                      <span className="font-semibold">{character.name}</span>
+                      <span className="font-semibold text-text-primary">{writer.name}</span>
+                      <span className="mx-2 text-text-secondary">wrote for</span>
+                      <span className="font-semibold text-text-primary">{character.name}</span>
                     </div>
                     
                     {isConceptWinner && (
-                      <div className="flex items-center text-amber-700">
+                      <div className="flex items-center text-warning-text">
                         <span className="text-xl mr-1">🏆</span>
                         <span className="font-medium text-sm">Best Concept</span>
                       </div>
@@ -4756,7 +4757,7 @@ export default function Room() {
             <div className="mt-10 flex justify-center">
               <button
               onClick={handleReturnHome}
-                className="px-10 py-4 rounded-lg bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 text-white font-bold text-lg shadow-lg hover:shadow-xl transition-all transform hover:-translate-y-1"
+                className="px-10 py-4 rounded-lg bg-brand-primary hover:bg-brand-secondary text-white font-bold text-lg shadow-lg hover:shadow-xl transition-all transform hover:-translate-y-1"
               >
               Back to Home
               </button>
@@ -4769,7 +4770,7 @@ export default function Room() {
 
   // Lobby phase rendering (default)
   return (
-    <main className="h-screen flex flex-col items-center justify-center gap-6 bg-background">
+    <main className="h-screen flex flex-col items-center justify-center gap-6 bg-background px-4 sm:px-6 lg:px-8">
       <DarkModeToggle />
       {/* Connection status indicator - place at the top */}
       {(isReconnecting || !isConnected) && (
@@ -4809,7 +4810,7 @@ export default function Room() {
             </code>
             <button
               onClick={handleCopyLink}
-              className="px-6 py-3 rounded-lg bg-text-primary text-background-primary hover:bg-text-secondary transition-colors text-lg font-semibold shadow-lg hover:shadow-xl transform hover:-translate-y-0.5 transition-all"
+              className="px-6 py-3 rounded-lg bg-brand-primary text-white hover:bg-brand-secondary transition-colors text-lg font-semibold shadow-lg hover:shadow-xl transform hover:-translate-y-0.5 transition-all"
             >
               {copied ? "Copied!" : "Copy Link"}
             </button>

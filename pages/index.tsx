@@ -12,7 +12,7 @@ export default function Home() {
   };
 
   return (
-    <main className="h-screen flex flex-col items-center justify-center gap-8 bg-background">
+    <main className="h-screen flex flex-col items-center justify-center gap-8 bg-background px-4 sm:px-6 lg:px-8">
       <DarkModeToggle />
       <h1 className="text-6xl font-bold bg-gradient-to-r from-brand-primary to-brand-secondary text-transparent bg-clip-text">
         PlotTwist
@@ -20,7 +20,7 @@ export default function Home() {
       <div className="flex flex-col items-center gap-4">
         <button
           onClick={handleHost}
-          className="px-6 py-3 rounded-lg bg-text-primary text-background-primary hover:bg-text-secondary transition-colors"
+          className="px-6 py-3 rounded-lg bg-brand-primary text-white hover:bg-brand-secondary transition-colors"
         >
           Start New Game
         </button>
