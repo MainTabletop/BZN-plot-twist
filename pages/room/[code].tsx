@@ -3862,7 +3862,7 @@ export default function Room() {
     
     // Rest of the existing description phase UI
     return (
-      <div className="p-4 max-w-md mx-auto bg-background-card rounded-xl shadow-md">
+      <div className="p-4 w-full max-w-2xl mx-auto bg-background-card rounded-xl shadow-md">
         <h2 className="text-xl font-bold mb-4 text-text-primary">Write a character description for:</h2>
         <div className="mb-4 p-2 bg-info-bg rounded">
           <p className="font-semibold text-info-text">{assignedPlayer?.name}</p>
