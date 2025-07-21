@@ -4,6 +4,7 @@ import { supa } from "../../lib/supa";
 import Link from "next/link";
 import React from "react";
 import DarkModeToggle from "../../components/DarkModeToggle";
+import { getRoomChannel, emit, on, attachDebugLogger } from "../../lib/realtime";
 
 type Player = { id: string; name: string; joinedAt: number; status: 'ready' | 'writing' | 'guessing'; seatNumber?: number };
 type GameSettings = {
@@ -907,18 +908,25 @@ export default function Room() {
       playerId
     });
     
-    // Create a new channel
-    const channel = supa.channel(`room:${slug}`, {
-      config: { 
+    // Check if we already have a channel for this room
+    const existingChannel = channelRef.current;
+    if (existingChannel) {
+      console.log('DEBUG - Channel already exists, reusing existing channel');
+      return null; // Return null since we're reusing existing channel
+    }
+
+    // Create a new channel using our wrapper
+    const channel = getRoomChannel(
+      typeof slug === 'string' ? slug : slug[0],
+      { 
         presence: { key: playerId },
         broadcast: { self: true }
-      },
-    });
+      }
+    );
 
     // Store channel reference
     channelRef.current = channel;
     
-    // Subscribe to the channel
     channel
       .on("presence", { event: "sync" }, () => {
         const state = channel.presenceState<Player>();
@@ -1064,11 +1072,7 @@ export default function Room() {
           
           // Broadcast the original host ID to all players
           try {
-            channel.send({
-              type: 'broadcast',
-              event: 'original_host_set',
-              payload: { originalHostId: firstPlayerId }
-            }).catch(err => console.error('DEBUG - Error broadcasting original host:', err));
+            emit(channel, 'original_host_set', { originalHostId: firstPlayerId });
           } catch (err) {
             console.error('DEBUG - Error sending original host:', err);
           }
@@ -1102,17 +1106,13 @@ export default function Room() {
             // If I am the original host, broadcast this
             if (playerId === originalHostIdRef.current) {
               try {
-                channel.send({
-                  type: 'broadcast',
-                  event: 'host_update',
-                  payload: { 
-                    hostId: originalHostIdRef.current,
-                    originalHostId: originalHostIdRef.current,
-                    forcedUpdate: true,
-                    fromPlayerId: playerId,
-                    fromFunction: 'presenceSync_originalHostRef'
-                  }
-                }).catch(err => console.error('DEBUG - Error broadcasting host update:', err));
+                emit(channel, 'host_update', { 
+                  hostId: originalHostIdRef.current,
+                  originalHostId: originalHostIdRef.current,
+                  forcedUpdate: true,
+                  fromPlayerId: playerId,
+                  fromFunction: 'presenceSync_originalHostRef'
+                });
               } catch (err) {
                 console.error('DEBUG - Error sending host update:', err);
               }
@@ -1140,18 +1140,14 @@ export default function Room() {
           // If I became the host, broadcast this
           if (playerId === newHostId) {
             try {
-              channel.send({
-                type: 'broadcast',
-                event: 'host_update',
-                payload: { 
-                  hostId: newHostId,
-                  // Do NOT pass null here, keep the original host ID for history
-                  originalHostId: originalHostIdRef.current,
-                  fromPlayerId: playerId,
-                  fromFunction: 'presenceSync_newHostWhenOriginalGone',
-                  timestamp: Date.now()
-                }
-              }).catch(err => console.error('DEBUG - Error broadcasting host update:', err));
+              emit(channel, 'host_update', { 
+                hostId: newHostId,
+                // Do NOT pass null here, keep the original host ID for history
+                originalHostId: originalHostIdRef.current,
+                fromPlayerId: playerId,
+                fromFunction: 'presenceSync_newHostWhenOriginalGone',
+                timestamp: Date.now()
+              });
             } catch (err) {
               console.error('DEBUG - Error sending host update:', err);
             }
@@ -1197,18 +1193,14 @@ export default function Room() {
             
             // If current player is the new host, broadcast it
             if (playerId === newHostId) {
-              try {
-                channel.send({
-                  type: 'broadcast',
-                  event: 'host_update',
-                  payload: { 
-                    hostId: newHostId,
-                    originalHostId 
-                  }
-                }).catch(err => console.error('DEBUG - Error broadcasting host update after removal:', err));
-              } catch (err) {
-                console.error('DEBUG - Error sending host update after removal:', err);
-              }
+                          try {
+              emit(channel, 'host_update', { 
+                hostId: newHostId,
+                originalHostId 
+              });
+            } catch (err) {
+              console.error('DEBUG - Error sending host update after removal:', err);
+            }
             }
           }
           
@@ -2103,6 +2095,8 @@ export default function Room() {
             isReconnecting
           });
           
+          console.log('DEBUG - Channel successfully subscribed');
+          
           // FIXED: Initial track() without status to prevent early 'ready' status
           await channel.track({ 
             id: playerId, 
@@ -2141,16 +2135,12 @@ export default function Room() {
                   console.log('DEBUG - CRITICAL - Host reconnected, broadcasting current phase');
                   setTimeout(() => {
                     if (channelRef.current) {
-                      channelRef.current.send({
-                        type: 'broadcast',
-                        event: 'game_phase_change',
-                        payload: { 
-                          phase: roomData.phase,
-                          preserveHost: true,
-                          preservedHostId: roomData.original_host_id,
-                          fromFunction: 'channelInit_recovery',
-                          timestamp: Date.now()
-                        }
+                      emit(channelRef.current, 'game_phase_change', { 
+                        phase: roomData.phase,
+                        preserveHost: true,
+                        preservedHostId: roomData.original_host_id,
+                        fromFunction: 'channelInit_recovery',
+                        timestamp: Date.now()
                       });
                     }
                   }, 2000);
@@ -2184,16 +2174,12 @@ export default function Room() {
             setTimeout(() => {
               if (channelRef.current) {
                 try {
-                  channelRef.current.send({
-                    type: 'broadcast',
-                    event: 'host_update',
-                    payload: { 
-                      hostId: playerId,
-                      originalHostId: playerId,
-                      forcedUpdate: true,
-                      fromPlayerId: playerId,
-                      fromFunction: 'channelSubscribe_originalHost'
-                    }
+                  emit(channelRef.current, 'host_update', { 
+                    hostId: playerId,
+                    originalHostId: playerId,
+                    forcedUpdate: true,
+                    fromPlayerId: playerId,
+                    fromFunction: 'channelSubscribe_originalHost'
                   });
                   
                   // Also persist in session storage
@@ -2447,18 +2433,14 @@ export default function Room() {
         console.log('DEBUG - CRITICAL - Sent host update before game start');
         
         // Then send the game phase change with assignments
-        await channelRef.current.send({
-          type: 'broadcast',
-          event: 'game_phase_change',
-          payload: { 
-            phase: 'description',
-            assignments,
-            preserveHost: true,
-            preservedHostId: hostId,
-            playerCount: players.length,
-            fromHostId: playerId, // Added fromHostId
-            timestamp: Date.now()
-          }
+        await emit(channelRef.current, 'game_phase_change', { 
+          phase: 'description',
+          assignments,
+          preserveHost: true,
+          preservedHostId: hostId,
+          playerCount: players.length,
+          fromHostId: playerId, // Added fromHostId
+          timestamp: Date.now()
         });
         
         console.log('DEBUG - CRITICAL - Sent phase change to description with assignments');
@@ -2653,15 +2635,11 @@ export default function Room() {
         if (channelRef.current) {
           try {
             console.log('DEBUG - CRITICAL - Broadcasting phase change to reading');
-            channelRef.current.send({
-            type: 'broadcast',
-            event: 'game_phase_change',
-            payload: { 
+            emit(channelRef.current, 'game_phase_change', { 
               phase: 'reading',
                 script: data.script, // Include script in phase change too as fallback
                 timestamp: Date.now()
-              }
-            });
+              });
           } catch (broadcastErr) {
             console.error('DEBUG - CRITICAL - Error broadcasting phase change:', broadcastErr);
         }
@@ -3006,17 +2984,13 @@ export default function Room() {
         console.log('DEBUG - CRITICAL - Sent forced host update before phase change to guessing');
         
         // Change phase with explicit host preservation
-        channelRef.current.send({
-          type: 'broadcast',
-          event: 'game_phase_change',
-          payload: { 
-            phase: 'guessing',
-            preserveHost: true,
-            preservedHostId: originalHostIdRef.current,
-            playerCount: players.length,
-            fromHostId: playerId, // Added fromHostId
-            timestamp: Date.now()
-          }
+        emit(channelRef.current, 'game_phase_change', { 
+          phase: 'guessing',
+          preserveHost: true,
+          preservedHostId: originalHostIdRef.current,
+          playerCount: players.length,
+          fromHostId: playerId, // Added fromHostId
+          timestamp: Date.now()
         });
         
         console.log('DEBUG - CRITICAL - Sent phase change to guessing with preserved host');
@@ -3497,20 +3471,16 @@ export default function Room() {
         console.log('DEBUG - CRITICAL - Original host sent forced host update before phase change to results');
         
         // Now send phase change
-        await channelRef.current.send({
-          type: 'broadcast',
-          event: 'game_phase_change',
-          payload: { 
-            phase: 'results',
-            preserveHost: true,
-            preservedHostId: originalHostIdRef.current,
-            playerCount: players.length,
-            scores: scores, // Fix: Use locally calculated scores instead of playerScores state
-            bestConceptWinner: bestConceptWinnerId,
-            bestDeliveryWinner: bestDeliveryWinnerId,
-            fromHostId: playerId, // Added fromHostId
-            timestamp: Date.now()
-          }
+        await emit(channelRef.current, 'game_phase_change', { 
+          phase: 'results',
+          preserveHost: true,
+          preservedHostId: originalHostIdRef.current,
+          playerCount: players.length,
+          scores: scores, // Fix: Use locally calculated scores instead of playerScores state
+          bestConceptWinner: bestConceptWinnerId,
+          bestDeliveryWinner: bestDeliveryWinnerId,
+          fromHostId: playerId, // Added fromHostId
+          timestamp: Date.now()
         });
         
         console.log('DEBUG - CRITICAL - Original host sent phase change to results with preserved host:', {
