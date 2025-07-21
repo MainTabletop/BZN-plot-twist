@@ -2683,6 +2683,31 @@ export default function Room() {
     handleGenerateScript();
   };
 
+  // TEMPORARY: Test function for Phase 1 verification
+  const testPhase1Events = () => {
+    if (!channelRef.current) return;
+    
+    console.log('DEBUG - PHASE1 - Testing event broadcasting...');
+    
+    // Test script_generation_start
+    channelRef.current.send({
+      type: 'broadcast',
+      event: 'script_generation_start',
+      payload: { hostId: playerId }
+    });
+    
+    // Test script_generation_end after 2 seconds
+    setTimeout(() => {
+      if (channelRef.current) {
+        channelRef.current.send({
+          type: 'broadcast',
+          event: 'script_generation_end',
+          payload: { error: false }
+        });
+      }
+    }, 2000);
+  };
+
   const handleKickPlayer = async (playerId: string) => {
     if (!isHost || gamePhase !== 'lobby') return;
     
@@ -4339,6 +4364,14 @@ export default function Room() {
                   ? 'All players are ready! You can generate the script now.'
                   : 'Wait for all players to submit their descriptions.'}
               </p>
+              
+              {/* TEMPORARY: Phase 1 Test Button */}
+              <button
+                onClick={testPhase1Events}
+                className="w-full mt-2 py-2 px-4 bg-yellow-500 hover:bg-yellow-600 text-white font-semibold rounded shadow-md transition-colors"
+              >
+                🧪 Test Phase 1 Events
+              </button>
               
               {/* Add sync host button if host status seems wrong */}
               {players.length > 0 && players[0].id !== hostId && (
