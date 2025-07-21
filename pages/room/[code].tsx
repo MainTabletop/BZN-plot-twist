@@ -2928,6 +2928,31 @@ export default function Room() {
     };
   }, [playerId, generatedScript]);
 
+  // Add listeners for script generation status updates
+  useEffect(() => {
+    if (!channelRef.current) return;
+    
+    const channel = channelRef.current;
+    
+    // Listen for script generation start
+    const scriptStartHandler = channel.on('broadcast', { event: 'script_generation_start' }, ({ payload }: { payload: { hostId: string } }) => {
+      console.log('DEBUG - PHASE1 - Received script_generation_start from host:', payload.hostId);
+      // Phase 1: Just log the event - we'll add state updates in Phase 3
+    });
+    
+    // Listen for script generation end
+    const scriptEndHandler = channel.on('broadcast', { event: 'script_generation_end' }, ({ payload }: { payload: { error?: boolean } }) => {
+      console.log('DEBUG - PHASE1 - Received script_generation_end:', { error: payload.error });
+      // Phase 1: Just log the event - we'll add state updates in Phase 3
+    });
+    
+    return () => {
+      // Proper cleanup
+      scriptStartHandler.unsubscribe();
+      scriptEndHandler.unsubscribe();
+    };
+  }, []);
+
   // Modify handleFinishReading to handle player count validation
   const handleFinishReading = () => {
     console.log('DEBUG - CRITICAL - handleFinishReading called:', {
@@ -3857,7 +3882,8 @@ export default function Room() {
               </svg>
               <h3 className="text-xl font-semibold text-text-primary">Generating Script...</h3>
               <p className="text-text-secondary text-center">
-                Creating your story with AI. This may take a few moments.
+                Creating your story with AI...<br />
+                Give it a second, could ya? It's going to space! Could you give it a second to get back from space?
               </p>
             </>
           )}
