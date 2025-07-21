@@ -2683,49 +2683,6 @@ export default function Room() {
     handleGenerateScript();
   };
 
-  // TEMPORARY: Test function for Phase 1 verification
-  const testPhase1Events = () => {
-    if (!channelRef.current) {
-      console.log('DEBUG - PHASE1 - ERROR: No channel available');
-      return;
-    }
-    
-    console.log('DEBUG - PHASE1 - Testing event broadcasting...', {
-      channelExists: !!channelRef.current,
-      playerId,
-      isHost,
-      gamePhase
-    });
-    
-    try {
-      // Test script_generation_start
-      console.log('DEBUG - PHASE1 - Broadcasting script_generation_start...');
-      channelRef.current.send({
-        type: 'broadcast',
-        event: 'script_generation_start',
-        payload: { hostId: playerId }
-      });
-      console.log('DEBUG - PHASE1 - Successfully broadcast script_generation_start');
-      
-      // Test script_generation_end after 2 seconds
-      setTimeout(() => {
-        if (channelRef.current) {
-          console.log('DEBUG - PHASE1 - Broadcasting script_generation_end...');
-          channelRef.current.send({
-            type: 'broadcast',
-            event: 'script_generation_end',
-            payload: { error: false }
-          });
-          console.log('DEBUG - PHASE1 - Successfully broadcast script_generation_end');
-        } else {
-          console.log('DEBUG - PHASE1 - ERROR: Channel lost before end broadcast');
-        }
-      }, 2000);
-    } catch (error) {
-      console.error('DEBUG - PHASE1 - ERROR broadcasting events:', error);
-    }
-  };
-
   const handleKickPlayer = async (playerId: string) => {
     if (!isHost || gamePhase !== 'lobby') return;
     
@@ -2970,44 +2927,6 @@ export default function Room() {
       scriptResponseHandler.unsubscribe();
     };
   }, [playerId, generatedScript]);
-
-  // Add listeners for script generation status updates
-  useEffect(() => {
-    if (!channelRef.current) {
-      console.log('DEBUG - PHASE1 - No channel available for listeners');
-      return;
-    }
-    
-    console.log('DEBUG - PHASE1 - Setting up event listeners...');
-    const channel = channelRef.current;
-    
-    // Listen for script generation start
-    const scriptStartHandler = channel.on('broadcast', { event: 'script_generation_start' }, ({ payload }: { payload: { hostId: string } }) => {
-      console.log('DEBUG - PHASE1 - Received script_generation_start from host:', payload.hostId);
-      // Phase 1: Just log the event - we'll add state updates in Phase 3
-    });
-    
-    // Listen for script generation end
-    const scriptEndHandler = channel.on('broadcast', { event: 'script_generation_end' }, ({ payload }: { payload: { error?: boolean } }) => {
-      console.log('DEBUG - PHASE1 - Received script_generation_end:', { error: payload.error });
-      // Phase 1: Just log the event - we'll add state updates in Phase 3
-    });
-    
-    console.log('DEBUG - PHASE1 - Event listeners set up successfully');
-    
-    // Test if channel is working by listening to existing events
-    const testHandler = channel.on('broadcast', { event: 'presence' }, () => {
-      console.log('DEBUG - PHASE1 - Channel is working - received presence event');
-    });
-    
-    return () => {
-      console.log('DEBUG - PHASE1 - Cleaning up event listeners');
-      // Proper cleanup
-      scriptStartHandler.unsubscribe();
-      scriptEndHandler.unsubscribe();
-      testHandler.unsubscribe();
-    };
-  }, []);
 
   // Modify handleFinishReading to handle player count validation
   const handleFinishReading = () => {
@@ -4324,18 +4243,6 @@ export default function Room() {
             
             {renderDescriptionPhase()}
           </div>
-          
-          {/* TEMPORARY: Phase 1 Test Button - Always Visible */}
-          <div className="w-full bg-yellow-100 border-2 border-yellow-400 rounded-xl p-4 mb-6">
-            <h3 className="text-lg font-semibold text-yellow-800 mb-2">🧪 Phase 1 Testing</h3>
-            <p className="text-yellow-700 text-sm mb-3">Click this button to test real-time event communication between players.</p>
-            <button
-              onClick={testPhase1Events}
-              className="w-full py-3 px-4 bg-yellow-500 hover:bg-yellow-600 text-white font-semibold rounded shadow-md transition-colors"
-            >
-              🧪 Test Phase 1 Events
-            </button>
-          </div>
         </div>
         
         <div className="w-full lg:w-1/3 lg:pl-6 mt-6 lg:mt-0">
@@ -5053,18 +4960,6 @@ export default function Room() {
 
       {gamePhase === 'lobby' && (
         <>
-          {/* TEMPORARY: Phase 1 Test Button - Lobby Phase */}
-          <div className="w-full bg-yellow-100 border-2 border-yellow-400 rounded-xl p-4 mb-6">
-            <h3 className="text-lg font-semibold text-yellow-800 mb-2">🧪 Phase 1 Testing (Lobby)</h3>
-            <p className="text-yellow-700 text-sm mb-3">Click this button to test real-time event communication between players.</p>
-            <button
-              onClick={testPhase1Events}
-              className="w-full py-3 px-4 bg-yellow-500 hover:bg-yellow-600 text-white font-semibold rounded shadow-md transition-colors"
-            >
-              🧪 Test Phase 1 Events
-            </button>
-          </div>
-          
           <h2 className="text-2xl font-semibold text-text-primary">Players</h2>
           <div className="mb-4 text-center text-text-secondary">
             <strong>{players.length}</strong> players in the room
