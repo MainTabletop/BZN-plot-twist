@@ -2685,27 +2685,45 @@ export default function Room() {
 
   // TEMPORARY: Test function for Phase 1 verification
   const testPhase1Events = () => {
-    if (!channelRef.current) return;
+    if (!channelRef.current) {
+      console.log('DEBUG - PHASE1 - ERROR: No channel available');
+      return;
+    }
     
-    console.log('DEBUG - PHASE1 - Testing event broadcasting...');
-    
-    // Test script_generation_start
-    channelRef.current.send({
-      type: 'broadcast',
-      event: 'script_generation_start',
-      payload: { hostId: playerId }
+    console.log('DEBUG - PHASE1 - Testing event broadcasting...', {
+      channelExists: !!channelRef.current,
+      playerId,
+      isHost,
+      gamePhase
     });
     
-    // Test script_generation_end after 2 seconds
-    setTimeout(() => {
-      if (channelRef.current) {
-        channelRef.current.send({
-          type: 'broadcast',
-          event: 'script_generation_end',
-          payload: { error: false }
-        });
-      }
-    }, 2000);
+    try {
+      // Test script_generation_start
+      console.log('DEBUG - PHASE1 - Broadcasting script_generation_start...');
+      channelRef.current.send({
+        type: 'broadcast',
+        event: 'script_generation_start',
+        payload: { hostId: playerId }
+      });
+      console.log('DEBUG - PHASE1 - Successfully broadcast script_generation_start');
+      
+      // Test script_generation_end after 2 seconds
+      setTimeout(() => {
+        if (channelRef.current) {
+          console.log('DEBUG - PHASE1 - Broadcasting script_generation_end...');
+          channelRef.current.send({
+            type: 'broadcast',
+            event: 'script_generation_end',
+            payload: { error: false }
+          });
+          console.log('DEBUG - PHASE1 - Successfully broadcast script_generation_end');
+        } else {
+          console.log('DEBUG - PHASE1 - ERROR: Channel lost before end broadcast');
+        }
+      }, 2000);
+    } catch (error) {
+      console.error('DEBUG - PHASE1 - ERROR broadcasting events:', error);
+    }
   };
 
   const handleKickPlayer = async (playerId: string) => {
@@ -2955,8 +2973,12 @@ export default function Room() {
 
   // Add listeners for script generation status updates
   useEffect(() => {
-    if (!channelRef.current) return;
+    if (!channelRef.current) {
+      console.log('DEBUG - PHASE1 - No channel available for listeners');
+      return;
+    }
     
+    console.log('DEBUG - PHASE1 - Setting up event listeners...');
     const channel = channelRef.current;
     
     // Listen for script generation start
@@ -2971,10 +2993,19 @@ export default function Room() {
       // Phase 1: Just log the event - we'll add state updates in Phase 3
     });
     
+    console.log('DEBUG - PHASE1 - Event listeners set up successfully');
+    
+    // Test if channel is working by listening to existing events
+    const testHandler = channel.on('broadcast', { event: 'presence' }, () => {
+      console.log('DEBUG - PHASE1 - Channel is working - received presence event');
+    });
+    
     return () => {
+      console.log('DEBUG - PHASE1 - Cleaning up event listeners');
       // Proper cleanup
       scriptStartHandler.unsubscribe();
       scriptEndHandler.unsubscribe();
+      testHandler.unsubscribe();
     };
   }, []);
 
