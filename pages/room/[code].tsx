@@ -4293,6 +4293,18 @@ export default function Room() {
             
             {renderDescriptionPhase()}
           </div>
+          
+          {/* TEMPORARY: Phase 1 Test Button - Always Visible */}
+          <div className="w-full bg-yellow-100 border-2 border-yellow-400 rounded-xl p-4 mb-6">
+            <h3 className="text-lg font-semibold text-yellow-800 mb-2">🧪 Phase 1 Testing</h3>
+            <p className="text-yellow-700 text-sm mb-3">Click this button to test real-time event communication between players.</p>
+            <button
+              onClick={testPhase1Events}
+              className="w-full py-3 px-4 bg-yellow-500 hover:bg-yellow-600 text-white font-semibold rounded shadow-md transition-colors"
+            >
+              🧪 Test Phase 1 Events
+            </button>
+          </div>
         </div>
         
         <div className="w-full lg:w-1/3 lg:pl-6 mt-6 lg:mt-0">
@@ -4364,14 +4376,6 @@ export default function Room() {
                   ? 'All players are ready! You can generate the script now.'
                   : 'Wait for all players to submit their descriptions.'}
               </p>
-              
-              {/* TEMPORARY: Phase 1 Test Button */}
-              <button
-                onClick={testPhase1Events}
-                className="w-full mt-2 py-2 px-4 bg-yellow-500 hover:bg-yellow-600 text-white font-semibold rounded shadow-md transition-colors"
-              >
-                🧪 Test Phase 1 Events
-              </button>
               
               {/* Add sync host button if host status seems wrong */}
               {players.length > 0 && players[0].id !== hostId && (
