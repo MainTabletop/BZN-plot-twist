@@ -4,6 +4,7 @@ import { supa } from "../../lib/supa";
 import Link from "next/link";
 import React from "react";
 import DarkModeToggle from "../../components/DarkModeToggle";
+import { getRoomChannel, emit, on, attachDebugLogger } from "../../lib/realtime";
 
 type Player = { id: string; name: string; joinedAt: number; status: 'ready' | 'writing' | 'guessing'; seatNumber?: number };
 type GameSettings = {
@@ -907,18 +908,25 @@ export default function Room() {
       playerId
     });
     
-    // Create a new channel
-    const channel = supa.channel(`room:${slug}`, {
-      config: { 
+    // Check if we already have a channel for this room
+    const existingChannel = channelRef.current;
+    if (existingChannel) {
+      console.log('DEBUG - Channel already exists, reusing existing channel');
+      return null; // Return null since we're reusing existing channel
+    }
+
+    // Create a new channel using our wrapper
+    const channel = getRoomChannel(
+      typeof slug === 'string' ? slug : slug[0],
+      { 
         presence: { key: playerId },
         broadcast: { self: true }
-      },
-    });
+      }
+    );
 
     // Store channel reference
     channelRef.current = channel;
     
-    // Subscribe to the channel
     channel
       .on("presence", { event: "sync" }, () => {
         const state = channel.presenceState<Player>();
@@ -1064,11 +1072,7 @@ export default function Room() {
           
           // Broadcast the original host ID to all players
           try {
-            channel.send({
-              type: 'broadcast',
-              event: 'original_host_set',
-              payload: { originalHostId: firstPlayerId }
-            }).catch(err => console.error('DEBUG - Error broadcasting original host:', err));
+            emit(channel, 'original_host_set', { originalHostId: firstPlayerId });
           } catch (err) {
             console.error('DEBUG - Error sending original host:', err);
           }
@@ -1102,17 +1106,13 @@ export default function Room() {
             // If I am the original host, broadcast this
             if (playerId === originalHostIdRef.current) {
               try {
-                channel.send({
-                  type: 'broadcast',
-                  event: 'host_update',
-                  payload: { 
-                    hostId: originalHostIdRef.current,
-                    originalHostId: originalHostIdRef.current,
-                    forcedUpdate: true,
-                    fromPlayerId: playerId,
-                    fromFunction: 'presenceSync_originalHostRef'
-                  }
-                }).catch(err => console.error('DEBUG - Error broadcasting host update:', err));
+                emit(channel, 'host_update', { 
+                  hostId: originalHostIdRef.current,
+                  originalHostId: originalHostIdRef.current,
+                  forcedUpdate: true,
+                  fromPlayerId: playerId,
+                  fromFunction: 'presenceSync_originalHostRef'
+                });
               } catch (err) {
                 console.error('DEBUG - Error sending host update:', err);
               }
@@ -1140,18 +1140,14 @@ export default function Room() {
           // If I became the host, broadcast this
           if (playerId === newHostId) {
             try {
-              channel.send({
-                type: 'broadcast',
-                event: 'host_update',
-                payload: { 
-                  hostId: newHostId,
-                  // Do NOT pass null here, keep the original host ID for history
-                  originalHostId: originalHostIdRef.current,
-                  fromPlayerId: playerId,
-                  fromFunction: 'presenceSync_newHostWhenOriginalGone',
-                  timestamp: Date.now()
-                }
-              }).catch(err => console.error('DEBUG - Error broadcasting host update:', err));
+              emit(channel, 'host_update', { 
+                hostId: newHostId,
+                // Do NOT pass null here, keep the original host ID for history
+                originalHostId: originalHostIdRef.current,
+                fromPlayerId: playerId,
+                fromFunction: 'presenceSync_newHostWhenOriginalGone',
+                timestamp: Date.now()
+              });
             } catch (err) {
               console.error('DEBUG - Error sending host update:', err);
             }
@@ -1197,18 +1193,14 @@ export default function Room() {
             
             // If current player is the new host, broadcast it
             if (playerId === newHostId) {
-              try {
-                channel.send({
-                  type: 'broadcast',
-                  event: 'host_update',
-                  payload: { 
-                    hostId: newHostId,
-                    originalHostId 
-                  }
-                }).catch(err => console.error('DEBUG - Error broadcasting host update after removal:', err));
-              } catch (err) {
-                console.error('DEBUG - Error sending host update after removal:', err);
-              }
+                          try {
+              emit(channel, 'host_update', { 
+                hostId: newHostId,
+                originalHostId 
+              });
+            } catch (err) {
+              console.error('DEBUG - Error sending host update after removal:', err);
+            }
             }
           }
           
@@ -2103,6 +2095,8 @@ export default function Room() {
             isReconnecting
           });
           
+          console.log('DEBUG - Channel successfully subscribed');
+          
           // FIXED: Initial track() without status to prevent early 'ready' status
           await channel.track({ 
             id: playerId, 
@@ -2141,16 +2135,12 @@ export default function Room() {
                   console.log('DEBUG - CRITICAL - Host reconnected, broadcasting current phase');
                   setTimeout(() => {
                     if (channelRef.current) {
-                      channelRef.current.send({
-                        type: 'broadcast',
-                        event: 'game_phase_change',
-                        payload: { 
-                          phase: roomData.phase,
-                          preserveHost: true,
-                          preservedHostId: roomData.original_host_id,
-                          fromFunction: 'channelInit_recovery',
-                          timestamp: Date.now()
-                        }
+                      emit(channelRef.current, 'game_phase_change', { 
+                        phase: roomData.phase,
+                        preserveHost: true,
+                        preservedHostId: roomData.original_host_id,
+                        fromFunction: 'channelInit_recovery',
+                        timestamp: Date.now()
                       });
                     }
                   }, 2000);
@@ -2160,13 +2150,9 @@ export default function Room() {
                   console.log('DEBUG - CRITICAL - Non-host reconnected to description phase, requesting assignments');
                   setTimeout(() => {
                     if (channelRef.current) {
-                      channelRef.current.send({
-                        type: 'broadcast',
-                        event: 'request_assignment_recovery',
-                        payload: { 
-                          requestingPlayerId: playerId,
-                          timestamp: Date.now()
-                        }
+                      emit(channelRef.current, 'request_assignment_recovery', { 
+                        requestingPlayerId: playerId,
+                        timestamp: Date.now()
                       });
                     }
                   }, 2000);
@@ -2184,16 +2170,12 @@ export default function Room() {
             setTimeout(() => {
               if (channelRef.current) {
                 try {
-                  channelRef.current.send({
-                    type: 'broadcast',
-                    event: 'host_update',
-                    payload: { 
-                      hostId: playerId,
-                      originalHostId: playerId,
-                      forcedUpdate: true,
-                      fromPlayerId: playerId,
-                      fromFunction: 'channelSubscribe_originalHost'
-                    }
+                  emit(channelRef.current, 'host_update', { 
+                    hostId: playerId,
+                    originalHostId: playerId,
+                    forcedUpdate: true,
+                    fromPlayerId: playerId,
+                    fromFunction: 'channelSubscribe_originalHost'
                   });
                   
                   // Also persist in session storage
@@ -2432,33 +2414,25 @@ export default function Room() {
     if (channelRef.current) {
       try {
         // First ensure host status is synced
-        await channelRef.current.send({
-          type: 'broadcast',
-          event: 'host_update',
-          payload: { 
-            hostId: originalHostIdRef.current,
-            originalHostId: originalHostIdRef.current,
-            forcedUpdate: true,
-            fromFunction: 'handleStartGame',
-            timestamp: Date.now()
-          }
+        await emit(channelRef.current, 'host_update', { 
+          hostId: originalHostIdRef.current,
+          originalHostId: originalHostIdRef.current,
+          forcedUpdate: true,
+          fromFunction: 'handleStartGame',
+          timestamp: Date.now()
         });
         
         console.log('DEBUG - CRITICAL - Sent host update before game start');
         
         // Then send the game phase change with assignments
-        await channelRef.current.send({
-          type: 'broadcast',
-          event: 'game_phase_change',
-          payload: { 
-            phase: 'description',
-            assignments,
-            preserveHost: true,
-            preservedHostId: hostId,
-            playerCount: players.length,
-            fromHostId: playerId, // Added fromHostId
-            timestamp: Date.now()
-          }
+        await emit(channelRef.current, 'game_phase_change', { 
+          phase: 'description',
+          assignments,
+          preserveHost: true,
+          preservedHostId: hostId,
+          playerCount: players.length,
+          fromHostId: playerId, // Added fromHostId
+          timestamp: Date.now()
         });
         
         console.log('DEBUG - CRITICAL - Sent phase change to description with assignments');
@@ -2521,13 +2495,9 @@ export default function Room() {
       });
 
       // Send the description to all players
-      await channelRef.current.send({
-        type: 'broadcast',
-        event: 'submit_description',
-        payload: {
-          playerId,
-          description: descriptionObj
-        }
+      await emit(channelRef.current, 'submit_description', {
+        playerId,
+        description: descriptionObj
       });
 
       // In handleSubmitDescription, before updating own status
@@ -2546,14 +2516,10 @@ export default function Room() {
           console.log('DEBUG - CRITICAL - My submission wasn\'t recorded, retrying...');
           
           // Retry submission
-          channelRef.current.send({
-            type: 'broadcast',
-            event: 'submit_description',
-            payload: {
-              playerId,
-              description: descriptionObj,
-              isRetry: true
-            }
+          emit(channelRef.current, 'submit_description', {
+            playerId,
+            description: descriptionObj,
+            isRetry: true
           });
         }
       }, 2000);
@@ -2566,14 +2532,10 @@ export default function Room() {
           console.log('DEBUG - CRITICAL - Final submission validation failed, sending emergency retry');
           
           // Emergency retry with all players
-          channelRef.current.send({
-            type: 'broadcast',
-            event: 'submit_description',
-            payload: {
-              playerId,
-              description: descriptionObj,
-              isEmergencyRetry: true
-            }
+          emit(channelRef.current, 'submit_description', {
+            playerId,
+            description: descriptionObj,
+            isEmergencyRetry: true
           });
         }
       }, 5000);
@@ -2633,14 +2595,10 @@ export default function Room() {
       if (channelRef.current) {
         try {
           console.log('DEBUG - CRITICAL - Broadcasting script to all players');
-          channelRef.current.send({
-            type: 'broadcast',
-            event: 'script_update',
-            payload: { 
-              script: data.script,
-              fromHost: playerId,
-              timestamp: Date.now()
-            }
+          emit(channelRef.current, 'script_update', { 
+            script: data.script,
+            fromHost: playerId,
+            timestamp: Date.now()
           });
         } catch (broadcastErr) {
           console.error('DEBUG - CRITICAL - Error broadcasting script:', broadcastErr);
@@ -2653,15 +2611,11 @@ export default function Room() {
         if (channelRef.current) {
           try {
             console.log('DEBUG - CRITICAL - Broadcasting phase change to reading');
-            channelRef.current.send({
-            type: 'broadcast',
-            event: 'game_phase_change',
-            payload: { 
+            emit(channelRef.current, 'game_phase_change', { 
               phase: 'reading',
                 script: data.script, // Include script in phase change too as fallback
                 timestamp: Date.now()
-              }
-            });
+              });
           } catch (broadcastErr) {
             console.error('DEBUG - CRITICAL - Error broadcasting phase change:', broadcastErr);
         }
@@ -2683,49 +2637,6 @@ export default function Room() {
     handleGenerateScript();
   };
 
-  // TEMPORARY: Test function for Phase 1 verification
-  const testPhase1Events = () => {
-    if (!channelRef.current) {
-      console.log('DEBUG - PHASE1 - ERROR: No channel available');
-      return;
-    }
-    
-    console.log('DEBUG - PHASE1 - Testing event broadcasting...', {
-      channelExists: !!channelRef.current,
-      playerId,
-      isHost,
-      gamePhase
-    });
-    
-    try {
-      // Test script_generation_start
-      console.log('DEBUG - PHASE1 - Broadcasting script_generation_start...');
-      channelRef.current.send({
-        type: 'broadcast',
-        event: 'script_generation_start',
-        payload: { hostId: playerId }
-      });
-      console.log('DEBUG - PHASE1 - Successfully broadcast script_generation_start');
-      
-      // Test script_generation_end after 2 seconds
-      setTimeout(() => {
-        if (channelRef.current) {
-          console.log('DEBUG - PHASE1 - Broadcasting script_generation_end...');
-          channelRef.current.send({
-            type: 'broadcast',
-            event: 'script_generation_end',
-            payload: { error: false }
-          });
-          console.log('DEBUG - PHASE1 - Successfully broadcast script_generation_end');
-        } else {
-          console.log('DEBUG - PHASE1 - ERROR: Channel lost before end broadcast');
-        }
-      }, 2000);
-    } catch (error) {
-      console.error('DEBUG - PHASE1 - ERROR broadcasting events:', error);
-    }
-  };
-
   const handleKickPlayer = async (playerId: string) => {
     if (!isHost || gamePhase !== 'lobby') return;
     
@@ -2739,14 +2650,10 @@ export default function Room() {
     if (channelRef.current) {
       try {
         // Use a direct broadcast with a clear unique event name
-        await channelRef.current.send({
-          type: 'broadcast',
-          event: 'force_remove_player',
-          payload: { 
-            playerId,
-            kickedBy: playerId === hostId ? 'self' : 'host',
-            timestamp: Date.now()
-          }
+        await emit(channelRef.current, 'force_remove_player', { 
+          playerId,
+          kickedBy: playerId === hostId ? 'self' : 'host',
+          timestamp: Date.now()
         });
         
         // Wait brief moment to ensure broadcast is processed
@@ -2788,18 +2695,14 @@ export default function Room() {
       // Force broadcast to sync all clients
       if (channelRef.current) {
         try {
-        channelRef.current.send({
-          type: 'broadcast',
-          event: 'host_update',
-          payload: { 
-            hostId: playerId,
-            originalHostId: playerId,
-            forcedUpdate: true,
-            fromPlayerId: playerId,
-            fromFunction: 'ensureOriginalHostPreserved_forced',
-            timestamp: Date.now()
-          }
-          });
+        emit(channelRef.current, 'host_update', { 
+          hostId: playerId,
+          originalHostId: playerId,
+          forcedUpdate: true,
+          fromPlayerId: playerId,
+          fromFunction: 'ensureOriginalHostPreserved_forced',
+          timestamp: Date.now()
+        });
           
           console.log('DEBUG - CRITICAL - Sent forced host update from ensureOriginalHostPreserved');
           
@@ -2888,13 +2791,9 @@ export default function Room() {
       // Send a direct request to the host for the script
       try {
         console.log('DEBUG - CRITICAL - Requesting script directly from host');
-        channelRef.current.send({
-          type: 'broadcast',
-          event: 'request_script',
-          payload: { 
-            requestingPlayerId: playerId,
-            requestingPlayerName: username
-          }
+        emit(channelRef.current, 'request_script', { 
+          requestingPlayerId: playerId,
+          requestingPlayerName: username
         });
       } catch (err) {
         console.error('DEBUG - CRITICAL - Error requesting script from host:', err);
@@ -2912,13 +2811,9 @@ export default function Room() {
       if (generatedScript && channelRef.current) {
         try {
           // Send the script directly to the requesting player
-          channelRef.current.send({
-            type: 'broadcast',
-            event: 'script_response',
-            payload: { 
-              script: generatedScript,
-              forPlayerId: payload?.requestingPlayerId
-            }
+          emit(channelRef.current, 'script_response', { 
+            script: generatedScript,
+            forPlayerId: payload?.requestingPlayerId
           });
           console.log('DEBUG - CRITICAL - Host sent script to requesting player');
         } catch (err) {
@@ -2970,44 +2865,6 @@ export default function Room() {
       scriptResponseHandler.unsubscribe();
     };
   }, [playerId, generatedScript]);
-
-  // Add listeners for script generation status updates
-  useEffect(() => {
-    if (!channelRef.current) {
-      console.log('DEBUG - PHASE1 - No channel available for listeners');
-      return;
-    }
-    
-    console.log('DEBUG - PHASE1 - Setting up event listeners...');
-    const channel = channelRef.current;
-    
-    // Listen for script generation start
-    const scriptStartHandler = channel.on('broadcast', { event: 'script_generation_start' }, ({ payload }: { payload: { hostId: string } }) => {
-      console.log('DEBUG - PHASE1 - Received script_generation_start from host:', payload.hostId);
-      // Phase 1: Just log the event - we'll add state updates in Phase 3
-    });
-    
-    // Listen for script generation end
-    const scriptEndHandler = channel.on('broadcast', { event: 'script_generation_end' }, ({ payload }: { payload: { error?: boolean } }) => {
-      console.log('DEBUG - PHASE1 - Received script_generation_end:', { error: payload.error });
-      // Phase 1: Just log the event - we'll add state updates in Phase 3
-    });
-    
-    console.log('DEBUG - PHASE1 - Event listeners set up successfully');
-    
-    // Test if channel is working by listening to existing events
-    const testHandler = channel.on('broadcast', { event: 'presence' }, () => {
-      console.log('DEBUG - PHASE1 - Channel is working - received presence event');
-    });
-    
-    return () => {
-      console.log('DEBUG - PHASE1 - Cleaning up event listeners');
-      // Proper cleanup
-      scriptStartHandler.unsubscribe();
-      scriptEndHandler.unsubscribe();
-      testHandler.unsubscribe();
-    };
-  }, []);
 
   // Modify handleFinishReading to handle player count validation
   const handleFinishReading = () => {
@@ -3087,17 +2944,13 @@ export default function Room() {
         console.log('DEBUG - CRITICAL - Sent forced host update before phase change to guessing');
         
         // Change phase with explicit host preservation
-        channelRef.current.send({
-          type: 'broadcast',
-          event: 'game_phase_change',
-          payload: { 
-            phase: 'guessing',
-            preserveHost: true,
-            preservedHostId: originalHostIdRef.current,
-            playerCount: players.length,
-            fromHostId: playerId, // Added fromHostId
-            timestamp: Date.now()
-          }
+        emit(channelRef.current, 'game_phase_change', { 
+          phase: 'guessing',
+          preserveHost: true,
+          preservedHostId: originalHostIdRef.current,
+          playerCount: players.length,
+          fromHostId: playerId, // Added fromHostId
+          timestamp: Date.now()
         });
         
         console.log('DEBUG - CRITICAL - Sent phase change to guessing with preserved host');
@@ -3182,17 +3035,13 @@ export default function Room() {
       if (playerId === originalHostIdRef.current) {
         console.log('DEBUG - CRITICAL - Original host forcing host update during guess submission');
         try {
-          await channelRef.current.send({
-            type: 'broadcast',
-            event: 'host_update',
-            payload: { 
-              hostId: originalHostIdRef.current,
-              originalHostId: originalHostIdRef.current,
-              forcedUpdate: true,
-              fromPlayerId: playerId,
-              fromFunction: 'handleSubmitGuesses_originalHost',
-              timestamp: Date.now()
-            }
+          await emit(channelRef.current, 'host_update', { 
+            hostId: originalHostIdRef.current,
+            originalHostId: originalHostIdRef.current,
+            forcedUpdate: true,
+            fromPlayerId: playerId,
+            fromFunction: 'handleSubmitGuesses_originalHost',
+            timestamp: Date.now()
           });
         } catch (err) {
           console.error('DEBUG - CRITICAL - Error sending host update during guess submission:', err);
@@ -3205,14 +3054,10 @@ export default function Room() {
         guessCount: Object.keys(playerGuesses).length
       });
       
-      await channelRef.current.send({
-        type: 'broadcast',
-        event: 'submit_guesses',
-        payload: { 
-          playerId,
-          guesses: playerGuesses,
-          timestamp: Date.now()
-        }
+      await emit(channelRef.current, 'submit_guesses', { 
+        playerId,
+        guesses: playerGuesses,
+        timestamp: Date.now()
       });
       
       // Non-original host players can reset their preservation flag after a short delay
@@ -3275,14 +3120,10 @@ export default function Room() {
       console.log('DEBUG - PLAY_AGAIN - Broadcasting reload signal to all players');
       
       // 2. Broadcast reload signal to all players
-      await channelRef.current.send({
-        type: 'broadcast',
-        event: 'play_again_reload',
-        payload: { 
-          initiatedBy: playerId,
-          originalHostId,
-          timestamp: Date.now()
-        }
+      await emit(channelRef.current, 'play_again_reload', { 
+        initiatedBy: playerId,
+        originalHostId,
+        timestamp: Date.now()
       });
       
       // Auto-reset button disabled state after a timeout (fallback)
@@ -3321,17 +3162,13 @@ export default function Room() {
         // If I am the original host, broadcast this
         if (playerId === originalHostIdRef.current) {
           try {
-            channelRef.current.send({
-              type: 'broadcast',
-              event: 'host_update',
-              payload: { 
-                hostId: originalHostIdRef.current,
-                originalHostId: originalHostIdRef.current,
-                forcedUpdate: true,
-                fromPlayerId: playerId,
-                fromFunction: 'syncHostStatus_originalHost',
-                timestamp: Date.now()
-              }
+            emit(channelRef.current, 'host_update', { 
+              hostId: originalHostIdRef.current,
+              originalHostId: originalHostIdRef.current,
+              forcedUpdate: true,
+              fromPlayerId: playerId,
+              fromFunction: 'syncHostStatus_originalHost',
+              timestamp: Date.now()
             });
           } catch (err) {
             console.error('DEBUG - Error broadcasting manual host update:', err);
@@ -3545,16 +3382,12 @@ export default function Room() {
     setBestDeliveryWinner(bestDeliveryWinnerId);
     
     // Send a preliminary host update with originator info
-    await channelRef.current.send({
-      type: 'broadcast',
-      event: 'host_update',
-      payload: { 
-        hostId: originalHostId, // Always use original host
-        originalHostId,
-        forcedUpdate: true,
-        fromPlayerId: playerId, // Track who sent this update
-        fromFunction: 'handleShowResults'
-      }
+    await emit(channelRef.current, 'host_update', { 
+      hostId: originalHostId, // Always use original host
+      originalHostId,
+      forcedUpdate: true,
+      fromPlayerId: playerId, // Track who sent this update
+      fromFunction: 'handleShowResults'
     });
     
     console.log('DEBUG - Original host sent forced host update before phase change to results');
@@ -3563,35 +3396,27 @@ export default function Room() {
     if (channelRef.current) {
       try {
         // First send a host update to keep host consistent during transition
-        await channelRef.current.send({
-          type: 'broadcast',
-          event: 'host_update',
-          payload: { 
-            hostId: originalHostIdRef.current,
-            originalHostId: originalHostIdRef.current,
-            forcedUpdate: true,
-            fromFunction: 'handleShowResults_pre',
-            timestamp: Date.now()
-          }
+        await emit(channelRef.current, 'host_update', { 
+          hostId: originalHostIdRef.current,
+          originalHostId: originalHostIdRef.current,
+          forcedUpdate: true,
+          fromFunction: 'handleShowResults_pre',
+          timestamp: Date.now()
         });
         
         console.log('DEBUG - CRITICAL - Original host sent forced host update before phase change to results');
         
         // Now send phase change
-        await channelRef.current.send({
-          type: 'broadcast',
-          event: 'game_phase_change',
-          payload: { 
-            phase: 'results',
-            preserveHost: true,
-            preservedHostId: originalHostIdRef.current,
-            playerCount: players.length,
-            scores: scores, // Fix: Use locally calculated scores instead of playerScores state
-            bestConceptWinner: bestConceptWinnerId,
-            bestDeliveryWinner: bestDeliveryWinnerId,
-            fromHostId: playerId, // Added fromHostId
-            timestamp: Date.now()
-          }
+        await emit(channelRef.current, 'game_phase_change', { 
+          phase: 'results',
+          preserveHost: true,
+          preservedHostId: originalHostIdRef.current,
+          playerCount: players.length,
+          scores: scores, // Fix: Use locally calculated scores instead of playerScores state
+          bestConceptWinner: bestConceptWinnerId,
+          bestDeliveryWinner: bestDeliveryWinnerId,
+          fromHostId: playerId, // Added fromHostId
+          timestamp: Date.now()
         });
         
         console.log('DEBUG - CRITICAL - Original host sent phase change to results with preserved host:', {
@@ -3659,15 +3484,11 @@ export default function Room() {
 
     try {
       // Broadcast the vote to all players
-      await channelRef.current.send({
-        type: 'broadcast',
-        event: 'player_vote_submitted',
-        payload: { 
-          playerId,
-          guessAuthorId,
-          bestConceptDescId,
-          bestDeliveryPlayerId
-        }
+      await emit(channelRef.current, 'player_vote_submitted', { 
+        playerId,
+        guessAuthorId,
+        bestConceptDescId,
+        bestDeliveryPlayerId
       });
       
       console.log('DEBUG - MVPv1 - After vote submission:', {
@@ -3873,12 +3694,8 @@ export default function Room() {
     // we should also tell other players we've submitted
     if (gamePhase === 'description' && status === 'ready' && channelRef.current) {
       // This broadcast will update the counter on all clients
-      channelRef.current.send({
-        type: 'broadcast',
-        event: 'submit_description',
-        payload: {
-          playerId
-        }
+      emit(channelRef.current, 'submit_description', {
+        playerId
       }).catch((err: Error) => console.error('Error broadcasting submission:', err));
     }
   };
@@ -4063,15 +3880,11 @@ export default function Room() {
               if (!generatedScript && channelRef.current) {
                 console.log(`DEBUG - CRITICAL - Script retry attempt ${index + 1}`);
                 try {
-                  channelRef.current.send({
-                    type: 'broadcast',
-                    event: 'request_script',
-                    payload: { 
-                      requestingPlayerId: playerId,
-                      requestingPlayerName: username,
-                      retry: index + 1,
-                      timestamp: Date.now()
-                    }
+                  emit(channelRef.current, 'request_script', { 
+                    requestingPlayerId: playerId,
+                    requestingPlayerName: username,
+                    retry: index + 1,
+                    timestamp: Date.now()
                   });
                 } catch (err) {
                   console.error(`DEBUG - CRITICAL - Error in script retry attempt ${index + 1}:`, err);
@@ -4323,18 +4136,6 @@ export default function Room() {
             </div>
             
             {renderDescriptionPhase()}
-          </div>
-          
-          {/* TEMPORARY: Phase 1 Test Button - Always Visible */}
-          <div className="w-full bg-yellow-100 border-2 border-yellow-400 rounded-xl p-4 mb-6">
-            <h3 className="text-lg font-semibold text-yellow-800 mb-2">🧪 Phase 1 Testing</h3>
-            <p className="text-yellow-700 text-sm mb-3">Click this button to test real-time event communication between players.</p>
-            <button
-              onClick={testPhase1Events}
-              className="w-full py-3 px-4 bg-yellow-500 hover:bg-yellow-600 text-white font-semibold rounded shadow-md transition-colors"
-            >
-              🧪 Test Phase 1 Events
-            </button>
           </div>
         </div>
         
@@ -5053,18 +4854,6 @@ export default function Room() {
 
       {gamePhase === 'lobby' && (
         <>
-          {/* TEMPORARY: Phase 1 Test Button - Lobby Phase */}
-          <div className="w-full bg-yellow-100 border-2 border-yellow-400 rounded-xl p-4 mb-6">
-            <h3 className="text-lg font-semibold text-yellow-800 mb-2">🧪 Phase 1 Testing (Lobby)</h3>
-            <p className="text-yellow-700 text-sm mb-3">Click this button to test real-time event communication between players.</p>
-            <button
-              onClick={testPhase1Events}
-              className="w-full py-3 px-4 bg-yellow-500 hover:bg-yellow-600 text-white font-semibold rounded shadow-md transition-colors"
-            >
-              🧪 Test Phase 1 Events
-            </button>
-          </div>
-          
           <h2 className="text-2xl font-semibold text-text-primary">Players</h2>
           <div className="mb-4 text-center text-text-secondary">
             <strong>{players.length}</strong> players in the room
