@@ -2150,13 +2150,9 @@ export default function Room() {
                   console.log('DEBUG - CRITICAL - Non-host reconnected to description phase, requesting assignments');
                   setTimeout(() => {
                     if (channelRef.current) {
-                      channelRef.current.send({
-                        type: 'broadcast',
-                        event: 'request_assignment_recovery',
-                        payload: { 
-                          requestingPlayerId: playerId,
-                          timestamp: Date.now()
-                        }
+                      emit(channelRef.current, 'request_assignment_recovery', { 
+                        requestingPlayerId: playerId,
+                        timestamp: Date.now()
                       });
                     }
                   }, 2000);
@@ -2418,16 +2414,12 @@ export default function Room() {
     if (channelRef.current) {
       try {
         // First ensure host status is synced
-        await channelRef.current.send({
-          type: 'broadcast',
-          event: 'host_update',
-          payload: { 
-            hostId: originalHostIdRef.current,
-            originalHostId: originalHostIdRef.current,
-            forcedUpdate: true,
-            fromFunction: 'handleStartGame',
-            timestamp: Date.now()
-          }
+        await emit(channelRef.current, 'host_update', { 
+          hostId: originalHostIdRef.current,
+          originalHostId: originalHostIdRef.current,
+          forcedUpdate: true,
+          fromFunction: 'handleStartGame',
+          timestamp: Date.now()
         });
         
         console.log('DEBUG - CRITICAL - Sent host update before game start');
@@ -2503,13 +2495,9 @@ export default function Room() {
       });
 
       // Send the description to all players
-      await channelRef.current.send({
-        type: 'broadcast',
-        event: 'submit_description',
-        payload: {
-          playerId,
-          description: descriptionObj
-        }
+      await emit(channelRef.current, 'submit_description', {
+        playerId,
+        description: descriptionObj
       });
 
       // In handleSubmitDescription, before updating own status
@@ -2528,14 +2516,10 @@ export default function Room() {
           console.log('DEBUG - CRITICAL - My submission wasn\'t recorded, retrying...');
           
           // Retry submission
-          channelRef.current.send({
-            type: 'broadcast',
-            event: 'submit_description',
-            payload: {
-              playerId,
-              description: descriptionObj,
-              isRetry: true
-            }
+          emit(channelRef.current, 'submit_description', {
+            playerId,
+            description: descriptionObj,
+            isRetry: true
           });
         }
       }, 2000);
@@ -2548,14 +2532,10 @@ export default function Room() {
           console.log('DEBUG - CRITICAL - Final submission validation failed, sending emergency retry');
           
           // Emergency retry with all players
-          channelRef.current.send({
-            type: 'broadcast',
-            event: 'submit_description',
-            payload: {
-              playerId,
-              description: descriptionObj,
-              isEmergencyRetry: true
-            }
+          emit(channelRef.current, 'submit_description', {
+            playerId,
+            description: descriptionObj,
+            isEmergencyRetry: true
           });
         }
       }, 5000);
@@ -2615,14 +2595,10 @@ export default function Room() {
       if (channelRef.current) {
         try {
           console.log('DEBUG - CRITICAL - Broadcasting script to all players');
-          channelRef.current.send({
-            type: 'broadcast',
-            event: 'script_update',
-            payload: { 
-              script: data.script,
-              fromHost: playerId,
-              timestamp: Date.now()
-            }
+          emit(channelRef.current, 'script_update', { 
+            script: data.script,
+            fromHost: playerId,
+            timestamp: Date.now()
           });
         } catch (broadcastErr) {
           console.error('DEBUG - CRITICAL - Error broadcasting script:', broadcastErr);
@@ -2674,14 +2650,10 @@ export default function Room() {
     if (channelRef.current) {
       try {
         // Use a direct broadcast with a clear unique event name
-        await channelRef.current.send({
-          type: 'broadcast',
-          event: 'force_remove_player',
-          payload: { 
-            playerId,
-            kickedBy: playerId === hostId ? 'self' : 'host',
-            timestamp: Date.now()
-          }
+        await emit(channelRef.current, 'force_remove_player', { 
+          playerId,
+          kickedBy: playerId === hostId ? 'self' : 'host',
+          timestamp: Date.now()
         });
         
         // Wait brief moment to ensure broadcast is processed
@@ -2723,18 +2695,14 @@ export default function Room() {
       // Force broadcast to sync all clients
       if (channelRef.current) {
         try {
-        channelRef.current.send({
-          type: 'broadcast',
-          event: 'host_update',
-          payload: { 
-            hostId: playerId,
-            originalHostId: playerId,
-            forcedUpdate: true,
-            fromPlayerId: playerId,
-            fromFunction: 'ensureOriginalHostPreserved_forced',
-            timestamp: Date.now()
-          }
-          });
+        emit(channelRef.current, 'host_update', { 
+          hostId: playerId,
+          originalHostId: playerId,
+          forcedUpdate: true,
+          fromPlayerId: playerId,
+          fromFunction: 'ensureOriginalHostPreserved_forced',
+          timestamp: Date.now()
+        });
           
           console.log('DEBUG - CRITICAL - Sent forced host update from ensureOriginalHostPreserved');
           
@@ -2823,13 +2791,9 @@ export default function Room() {
       // Send a direct request to the host for the script
       try {
         console.log('DEBUG - CRITICAL - Requesting script directly from host');
-        channelRef.current.send({
-          type: 'broadcast',
-          event: 'request_script',
-          payload: { 
-            requestingPlayerId: playerId,
-            requestingPlayerName: username
-          }
+        emit(channelRef.current, 'request_script', { 
+          requestingPlayerId: playerId,
+          requestingPlayerName: username
         });
       } catch (err) {
         console.error('DEBUG - CRITICAL - Error requesting script from host:', err);
@@ -2847,13 +2811,9 @@ export default function Room() {
       if (generatedScript && channelRef.current) {
         try {
           // Send the script directly to the requesting player
-          channelRef.current.send({
-            type: 'broadcast',
-            event: 'script_response',
-            payload: { 
-              script: generatedScript,
-              forPlayerId: payload?.requestingPlayerId
-            }
+          emit(channelRef.current, 'script_response', { 
+            script: generatedScript,
+            forPlayerId: payload?.requestingPlayerId
           });
           console.log('DEBUG - CRITICAL - Host sent script to requesting player');
         } catch (err) {
@@ -3075,17 +3035,13 @@ export default function Room() {
       if (playerId === originalHostIdRef.current) {
         console.log('DEBUG - CRITICAL - Original host forcing host update during guess submission');
         try {
-          await channelRef.current.send({
-            type: 'broadcast',
-            event: 'host_update',
-            payload: { 
-              hostId: originalHostIdRef.current,
-              originalHostId: originalHostIdRef.current,
-              forcedUpdate: true,
-              fromPlayerId: playerId,
-              fromFunction: 'handleSubmitGuesses_originalHost',
-              timestamp: Date.now()
-            }
+          await emit(channelRef.current, 'host_update', { 
+            hostId: originalHostIdRef.current,
+            originalHostId: originalHostIdRef.current,
+            forcedUpdate: true,
+            fromPlayerId: playerId,
+            fromFunction: 'handleSubmitGuesses_originalHost',
+            timestamp: Date.now()
           });
         } catch (err) {
           console.error('DEBUG - CRITICAL - Error sending host update during guess submission:', err);
@@ -3098,14 +3054,10 @@ export default function Room() {
         guessCount: Object.keys(playerGuesses).length
       });
       
-      await channelRef.current.send({
-        type: 'broadcast',
-        event: 'submit_guesses',
-        payload: { 
-          playerId,
-          guesses: playerGuesses,
-          timestamp: Date.now()
-        }
+      await emit(channelRef.current, 'submit_guesses', { 
+        playerId,
+        guesses: playerGuesses,
+        timestamp: Date.now()
       });
       
       // Non-original host players can reset their preservation flag after a short delay
@@ -3168,14 +3120,10 @@ export default function Room() {
       console.log('DEBUG - PLAY_AGAIN - Broadcasting reload signal to all players');
       
       // 2. Broadcast reload signal to all players
-      await channelRef.current.send({
-        type: 'broadcast',
-        event: 'play_again_reload',
-        payload: { 
-          initiatedBy: playerId,
-          originalHostId,
-          timestamp: Date.now()
-        }
+      await emit(channelRef.current, 'play_again_reload', { 
+        initiatedBy: playerId,
+        originalHostId,
+        timestamp: Date.now()
       });
       
       // Auto-reset button disabled state after a timeout (fallback)
@@ -3214,17 +3162,13 @@ export default function Room() {
         // If I am the original host, broadcast this
         if (playerId === originalHostIdRef.current) {
           try {
-            channelRef.current.send({
-              type: 'broadcast',
-              event: 'host_update',
-              payload: { 
-                hostId: originalHostIdRef.current,
-                originalHostId: originalHostIdRef.current,
-                forcedUpdate: true,
-                fromPlayerId: playerId,
-                fromFunction: 'syncHostStatus_originalHost',
-                timestamp: Date.now()
-              }
+            emit(channelRef.current, 'host_update', { 
+              hostId: originalHostIdRef.current,
+              originalHostId: originalHostIdRef.current,
+              forcedUpdate: true,
+              fromPlayerId: playerId,
+              fromFunction: 'syncHostStatus_originalHost',
+              timestamp: Date.now()
             });
           } catch (err) {
             console.error('DEBUG - Error broadcasting manual host update:', err);
@@ -3438,16 +3382,12 @@ export default function Room() {
     setBestDeliveryWinner(bestDeliveryWinnerId);
     
     // Send a preliminary host update with originator info
-    await channelRef.current.send({
-      type: 'broadcast',
-      event: 'host_update',
-      payload: { 
-        hostId: originalHostId, // Always use original host
-        originalHostId,
-        forcedUpdate: true,
-        fromPlayerId: playerId, // Track who sent this update
-        fromFunction: 'handleShowResults'
-      }
+    await emit(channelRef.current, 'host_update', { 
+      hostId: originalHostId, // Always use original host
+      originalHostId,
+      forcedUpdate: true,
+      fromPlayerId: playerId, // Track who sent this update
+      fromFunction: 'handleShowResults'
     });
     
     console.log('DEBUG - Original host sent forced host update before phase change to results');
@@ -3456,16 +3396,12 @@ export default function Room() {
     if (channelRef.current) {
       try {
         // First send a host update to keep host consistent during transition
-        await channelRef.current.send({
-          type: 'broadcast',
-          event: 'host_update',
-          payload: { 
-            hostId: originalHostIdRef.current,
-            originalHostId: originalHostIdRef.current,
-            forcedUpdate: true,
-            fromFunction: 'handleShowResults_pre',
-            timestamp: Date.now()
-          }
+        await emit(channelRef.current, 'host_update', { 
+          hostId: originalHostIdRef.current,
+          originalHostId: originalHostIdRef.current,
+          forcedUpdate: true,
+          fromFunction: 'handleShowResults_pre',
+          timestamp: Date.now()
         });
         
         console.log('DEBUG - CRITICAL - Original host sent forced host update before phase change to results');
@@ -3548,15 +3484,11 @@ export default function Room() {
 
     try {
       // Broadcast the vote to all players
-      await channelRef.current.send({
-        type: 'broadcast',
-        event: 'player_vote_submitted',
-        payload: { 
-          playerId,
-          guessAuthorId,
-          bestConceptDescId,
-          bestDeliveryPlayerId
-        }
+      await emit(channelRef.current, 'player_vote_submitted', { 
+        playerId,
+        guessAuthorId,
+        bestConceptDescId,
+        bestDeliveryPlayerId
       });
       
       console.log('DEBUG - MVPv1 - After vote submission:', {
@@ -3762,12 +3694,8 @@ export default function Room() {
     // we should also tell other players we've submitted
     if (gamePhase === 'description' && status === 'ready' && channelRef.current) {
       // This broadcast will update the counter on all clients
-      channelRef.current.send({
-        type: 'broadcast',
-        event: 'submit_description',
-        payload: {
-          playerId
-        }
+      emit(channelRef.current, 'submit_description', {
+        playerId
       }).catch((err: Error) => console.error('Error broadcasting submission:', err));
     }
   };
@@ -3952,15 +3880,11 @@ export default function Room() {
               if (!generatedScript && channelRef.current) {
                 console.log(`DEBUG - CRITICAL - Script retry attempt ${index + 1}`);
                 try {
-                  channelRef.current.send({
-                    type: 'broadcast',
-                    event: 'request_script',
-                    payload: { 
-                      requestingPlayerId: playerId,
-                      requestingPlayerName: username,
-                      retry: index + 1,
-                      timestamp: Date.now()
-                    }
+                  emit(channelRef.current, 'request_script', { 
+                    requestingPlayerId: playerId,
+                    requestingPlayerName: username,
+                    retry: index + 1,
+                    timestamp: Date.now()
                   });
                 } catch (err) {
                   console.error(`DEBUG - CRITICAL - Error in script retry attempt ${index + 1}:`, err);
