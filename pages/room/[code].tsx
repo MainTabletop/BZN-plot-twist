@@ -684,38 +684,11 @@ export default function Room() {
   };
 
   // Fix the sortPlayersByStableId function to include return type
-  const sortPlayersByStableId = (players: Player[]): Player[] => {
-    return [...players].sort((a, b) => {
-      // First sort by seat number if available 
-      if (a.seatNumber !== undefined && b.seatNumber !== undefined) {
-        return a.seatNumber - b.seatNumber;
-      }
-      
-      // Then sort by join time as fallback
-      const timeSort = a.joinedAt - b.joinedAt;
-      if (timeSort !== 0) return timeSort;
-      
-      // Then by ID as a final fallback for stable order
-      return a.id.localeCompare(b.id);
-    });
-  };
 
-  // Add a memoized player list to ensure stable rendering
-  const stablePlayers = React.useMemo(() => {
-    // If no seat numbers are assigned, assign virtual ones based on current order
-    if (players.length > 0 && players.every(p => p.seatNumber === undefined)) {
-      // Sort by existing logic
-      const sortedPlayers = sortPlayersByStableId([...players]);
-      
-      // Assign virtual seat numbers for rendering stability
-      return sortedPlayers.map((player, index) => ({
-        ...player,
-        virtualSeatNumber: index + 1
-      }));
-    }
-    
-    // Use regular sorting if some have seat numbers
-    return sortPlayersByStableId([...players]);
+
+  // Display-sorted players - always sorted by seatNumber for stable rendering
+  const sortedPlayers = React.useMemo(() => {
+    return [...players].sort((a, b) => (a.seatNumber ?? 9999) - (b.seatNumber ?? 9999));
   }, [players]);
 
   // Add back the getPlayerName utility function
@@ -1050,21 +1023,47 @@ export default function Room() {
           })).values()
         );
         
-        // Use stable sorting function
-        const sortedPlayers = sortPlayersByStableId(uniquePlayers);
+        // Simple data update only - never reorder during presence sync
+        const playerMap = new Map(uniquePlayers.map(p => [p.id, p]));
+        let finalPlayers: Player[];
+        
+        // If this is the very first time (empty players list), establish initial order
+        if (players.length === 0) {
+          finalPlayers = uniquePlayers;
+          console.log('DEBUG - CRITICAL - Initial player list established');
+        } else {
+          // Always preserve existing order, just update the data
+          finalPlayers = players.map(existingPlayer => {
+            const updatedPlayer = playerMap.get(existingPlayer.id);
+            return updatedPlayer || existingPlayer; // Keep existing if not found in update
+          }).filter(p => playerMap.has(p.id)); // Remove players no longer present
+          
+          // Handle truly new players (not just presence updates)
+          const existingIds = new Set(players.map(p => p.id));
+          const genuinelyNewPlayers = uniquePlayers.filter(p => !existingIds.has(p.id));
+          
+          if (genuinelyNewPlayers.length > 0) {
+            console.log('DEBUG - CRITICAL - Adding genuinely new players:', genuinelyNewPlayers.map(p => p.name));
+            // Add new players to end - they'll be sorted by seatNumber in display
+            finalPlayers = [...finalPlayers, ...genuinelyNewPlayers];
+          }
+        }
+        
         console.log('DEBUG - CRITICAL - Updated player statuses:', {
-          count: sortedPlayers.length,
-          statuses: sortedPlayers.reduce((acc, p) => {
+          count: finalPlayers.length,
+          isInitialLoad: players.length === 0,
+          newPlayersAdded: players.length === 0 ? 0 : uniquePlayers.filter(p => !players.some(ep => ep.id === p.id)).length,
+          statuses: finalPlayers.reduce((acc, p) => {
             acc[p.name] = p.status;
             return acc;
           }, {} as Record<string, string>)
         });
         
-        setPlayers(sortedPlayers);
+        setPlayers(finalPlayers);
         
         // Only set original host if it's not already set and this is the first player
-        if (!originalHostIdRef.current && sortedPlayers.length === 1 && sortedPlayers[0].id === playerId) {
-          const firstPlayerId = sortedPlayers[0].id;
+        if (!originalHostIdRef.current && finalPlayers.length === 1 && finalPlayers[0].id === playerId) {
+          const firstPlayerId = finalPlayers[0].id;
           console.log('DEBUG - CRITICAL - Setting first player as original host:', firstPlayerId);
           
           // Use our safe setter function
@@ -1084,7 +1083,7 @@ export default function Room() {
         
         // IMPROVED HOST LOGIC: Check if the original host from our ref is in the game
         const refOriginalHostPresent = originalHostIdRef.current && 
-          sortedPlayers.some(p => p.id === originalHostIdRef.current);
+          finalPlayers.some(p => p.id === originalHostIdRef.current);
         
         console.log('DEBUG - CRITICAL - Host presence check:', {
           refOriginalHostPresent,
@@ -1118,21 +1117,21 @@ export default function Room() {
               }
             }
           }
-        } else if (!hostId || !sortedPlayers.some(p => p.id === hostId)) {
+        } else if (!hostId || !finalPlayers.some(p => p.id === hostId)) {
           // Original host ref not present AND current host not found in player list
-          if (sortedPlayers.length === 0) {
+          if (finalPlayers.length === 0) {
             console.log('DEBUG - No players in the room, skipping host assignment');
             return;
           }
           
           // Use the first player from the sorted list as the new host
           // This is the ONLY case where we should assign a new host
-          const newHostId = sortedPlayers[0].id;
+          const newHostId = finalPlayers[0].id;
           
-          console.log('DEBUG - CRITICAL - Setting new host (original host absent):', {
-              newHostId: newHostId.slice(0, 8),
-            iAmFirstPlayer: playerId === sortedPlayers[0].id
-          });
+                      console.log('DEBUG - CRITICAL - Setting new host (original host absent):', {
+                newHostId: newHostId.slice(0, 8),
+              iAmFirstPlayer: playerId === finalPlayers[0].id
+            });
           
           setHostId(newHostId);
           hostInitializedRef.current = true;
@@ -1161,7 +1160,7 @@ export default function Room() {
         if (playerAssignments.length > 0) {
           const myAssignment = playerAssignments.find(a => a.playerId === playerId);
           if (myAssignment) {
-            const assigned = sortedPlayers.find(p => p.id === myAssignment.assignedPlayerId);
+            const assigned = finalPlayers.find(p => p.id === myAssignment.assignedPlayerId);
             if (assigned) {
               setAssignedPlayer(assigned);
             }
@@ -1169,7 +1168,7 @@ export default function Room() {
         }
         
         console.log('DEBUG - CRITICAL - Presence sync END:', {
-          playerCount: sortedPlayers.length,
+          playerCount: finalPlayers.length,
           phase: gamePhase
         });
       })
@@ -3138,107 +3137,27 @@ export default function Room() {
     }
   };
 
-  // Modify syncHostStatus for improved approach
-  const syncHostStatus = () => {
-    if (!channelRef.current || !players.length) return;
-    
-    console.log('DEBUG - CRITICAL - Manual host sync started:', {
-      currentHostId: hostId,
-      originalHostId,
-      originalHostIdRef: originalHostIdRef.current,
-      playerId,
-      playerCount: players.length
-    });
-    
-    // If original host from ref is in the game, they should be host
-    const originalHostPresent = originalHostIdRef.current && 
-      players.some(p => p.id === originalHostIdRef.current);
-    
-    if (originalHostPresent) {
-      if (hostId !== originalHostIdRef.current) {
-        console.log('DEBUG - CRITICAL - Manual sync: original host should be host');
-        setHostId(originalHostIdRef.current);
-        
-        // If I am the original host, broadcast this
-        if (playerId === originalHostIdRef.current) {
-          try {
-            emit(channelRef.current, 'host_update', { 
-              hostId: originalHostIdRef.current,
-              originalHostId: originalHostIdRef.current,
-              forcedUpdate: true,
-              fromPlayerId: playerId,
-              fromFunction: 'syncHostStatus_originalHost',
-              timestamp: Date.now()
-            });
-          } catch (err) {
-            console.error('DEBUG - Error broadcasting manual host update:', err);
-          }
-        }
-      }
-    } else if (!hostId || !players.some(p => p.id === hostId)) {
-      // Original host not present AND host is missing
-      // Use first player from the sorted list
-      const sortedPlayers = [...players].sort((a, b) => a.joinedAt - b.joinedAt);
-      const newHostId = sortedPlayers[0]?.id;
-      
-      console.log('DEBUG - CRITICAL - Manual sync: sorted players for host selection:', {
-        sortedPlayerIds: sortedPlayers.map(p => p.id),
-        selectedHost: newHostId,
-        iAmSelectedHost: playerId === newHostId
-      });
-      
-      if (newHostId && newHostId !== hostId) {
-        console.log('DEBUG - CRITICAL - Manual sync: assigning new host:', newHostId);
-        setHostId(newHostId);
-        
-        // If I become the host, broadcast this
-        if (playerId === newHostId) {
-          try {
-            channelRef.current.send({
-              type: 'broadcast',
-              event: 'host_update',
-              payload: { 
-                hostId: newHostId,
-                originalHostId: originalHostIdRef.current, // Keep original host ID for history
-                fromPlayerId: playerId,
-                fromFunction: 'syncHostStatus_newHost',
-                timestamp: Date.now()
-              }
-            });
-          } catch (err) {
-            console.error('DEBUG - Error broadcasting manual host update:', err);
-          }
-        }
-      }
-    }
-  };
+  // syncHostStatus function removed - was only used by deleted popup
 
   // Add player status validation for the "Show Results" button
   const canShowResults = () => {
     // Only host can show results
     if (!isHost) return false;
+
+    // During guessing phase, check if all players have submitted their guesses
+    if (gamePhase === 'guessing') {
+      const allPlayersGuessed = players.every(p => {
+        // The host doesn't submit guesses in the same way
+        if (p.id === hostId) return true;
+        // Check if the player is in the list of those who have submitted
+        return guessSubmittedPlayerIds.includes(p.id);
+      });
+      return allPlayersGuessed;
+    }
     
-    // If not in guessing phase, cannot show results
-    if (gamePhase !== 'guessing') return false;
-    
-    // Check if all players have submitted their guesses
-    const allPlayersSubmitted = players.every(player => 
-      guessSubmittedPlayerIds.includes(player.id)
-    );
-    
-    console.log('DEBUG - MVPv1 - Can show results check:', {
-      playerId,
-      isHost,
-      isOriginalHost: playerId === originalHostIdRef.current,
-      gamePhase,
-      allPlayersSubmitted,
-      guessSubmittedCount: guessSubmittedPlayerIds.length,
-      totalPlayers: players.length,
-      buttonWillShow: isOriginalHost && allPlayersSubmitted,
-      missingSubmissions: players.filter(p => !guessSubmittedPlayerIds.includes(p.id)).map(p => p.name)
-    });
-    
-    return allPlayersSubmitted;
+    // In other phases, this check might not be relevant, or based on different criteria
+    // For now, let's keep it simple and only enable for the guessing phase.
+    return false;
   };
 
   // Fix the handleShowResults function to validate player count and statuses
@@ -4018,7 +3937,7 @@ export default function Room() {
         
         <div className="w-full max-w-4xl">
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-            {stablePlayers.map((player) => (
+            {sortedPlayers.map((player) => (
               <div
                 key={player.id}
                 className={`p-4 rounded-lg ${
@@ -4144,7 +4063,7 @@ export default function Room() {
             <h3 className="text-xl font-semibold mb-4 text-text-primary">Players</h3>
             
             <div className="space-y-3">
-              {stablePlayers.map((player) => (
+              {sortedPlayers.map((player) => (
                 <div 
                   key={player.id} 
                   className="flex flex-col sm:flex-row sm:items-center sm:justify-between p-3 bg-background-muted rounded-lg"
@@ -4209,18 +4128,7 @@ export default function Room() {
                   : 'Wait for all players to submit their descriptions.'}
               </p>
               
-              {/* Add sync host button if host status seems wrong */}
-              {players.length > 0 && players[0].id !== hostId && (
-                <div className="mt-4 pt-4 border-t border-border-primary">
-                  <p className="text-xs text-warning-text mb-2">Host status may be out of sync</p>
-                  <button
-                    onClick={syncHostStatus}
-                    className="w-full py-2 px-4 bg-background-muted hover:bg-background-secondary rounded text-text-primary text-sm"
-                  >
-                    Sync Host Status
-                  </button>
-                </div>
-              )}
+              {/* Sync host button removed - was part of old buggy host logic */}
             </div>
           )}
         </div>
@@ -4301,7 +4209,7 @@ export default function Room() {
               } text-text-primary`}
             >
               <option value="">Select who you think wrote your description...</option>
-              {stablePlayers
+              {sortedPlayers
                 .filter(p => p.id !== playerId) // Can't select yourself
                 .map(player => (
                   <option key={player.id} value={player.id}>
@@ -4343,7 +4251,7 @@ export default function Room() {
               } text-text-primary`}
             >
               <option value="">Select a character...</option>
-              {stablePlayers
+              {sortedPlayers
                 .filter(p => p.id !== playerAssignments.find(a => a.playerId === playerId)?.assignedPlayerId)
                 .map(player => (
                   <option key={player.id} value={player.id}>
@@ -4385,7 +4293,7 @@ export default function Room() {
               } text-text-primary`}
             >
               <option value="">Select an actor...</option>
-              {stablePlayers
+              {sortedPlayers
                 .filter(p => p.id !== playerId) // Can't vote for yourself
                 .map(player => (
                   <option key={player.id} value={player.id}>
@@ -4450,7 +4358,7 @@ export default function Room() {
         <div className="w-full max-w-4xl bg-background-card rounded-lg p-4 shadow">
           <h3 className="text-lg font-semibold mb-3 text-text-primary">Players Status</h3>
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
-            {stablePlayers.map((player) => (
+            {sortedPlayers.map((player) => (
               <div
                 key={player.id}
                 className={`p-3 rounded-lg ${
@@ -4473,7 +4381,7 @@ export default function Room() {
               </div>
             ))}
           </div>
-          {isOriginalHost && stablePlayers.every(p => guessSubmittedPlayerIds.includes(p.id)) && (
+                      {isOriginalHost && sortedPlayers.every(p => guessSubmittedPlayerIds.includes(p.id)) && (
             <div className="mt-4 p-4 bg-green-50 border border-green-200 rounded-lg text-center">
               <p className="text-green-700 font-medium">All players have submitted their votes!</p>
               <button
@@ -4562,7 +4470,7 @@ export default function Room() {
               
               <div className="overflow-hidden">
                 {/* Sort players by score in descending order */}
-                {stablePlayers
+                {sortedPlayers
                   .slice()
                   .sort((a, b) => (playerScores[b.id] || 0) - (playerScores[a.id] || 0))
                   .map((player, index) => {
@@ -4819,20 +4727,7 @@ export default function Room() {
         )}
 
         {/* Display for non-host who should be host based on join time */}
-        {!isHost && gamePhase === 'lobby' && players.length > 0 && players[0].id === playerId && (
-          <div className="flex flex-col gap-4 p-4 bg-warning-bg border border-warning-border rounded-lg shadow-md">
-            <h2 className="text-lg font-semibold text-warning-text">Host Status Issue</h2>
-            <p className="text-sm text-warning-text">
-              You should be the host (first player), but your host status is not active.
-            </p>
-            <button
-              onClick={syncHostStatus}
-              className="px-4 py-2 bg-warning-text hover:bg-warning-border text-background-primary rounded-md"
-            >
-              Claim Host Status
-            </button>
-          </div>
-        )}
+        {/* Host Status Issue popup removed - was based on old buggy host logic */}
 
         {isHost && gamePhase !== 'lobby' && (
           <div className="flex flex-col gap-4 p-4 bg-background-card rounded-lg shadow-md">
@@ -4859,7 +4754,7 @@ export default function Room() {
             <strong>{players.length}</strong> players in the room
           </div>
           <ul className="text-xl">
-            {stablePlayers.map((p) => (
+            {sortedPlayers.map((p) => (
               <li key={p.id} className="py-1 flex items-center gap-2 text-text-primary">
                 <span className="text-base">—</span>
                 {p.name}
