@@ -532,6 +532,34 @@ export default function Room() {
     return players[0].id;
   };
 
+  // Centralized host update helper - replaces all scattered host_update logic
+  const updateHostIfNeeded = async (newHostId: string, reason: string) => {
+    if (!newHostId || newHostId === hostId) return;
+
+    console.log('[HOST]', reason, '→', newHostId);
+
+    // local state + sessionStorage
+    setHostId(newHostId);
+    sessionStorage.setItem(`host_${slug}`, newHostId);
+
+    // DB write (best-effort)
+    const { error } = await supa
+      .from('rooms')
+      .update({ current_host_id: newHostId })
+      .eq('room_code', slug);
+    if (error) console.error('[HOST] DB update error:', error);
+
+    // single broadcast
+    if (channelRef.current) {
+      emit(channelRef.current, 'host_update', {
+        hostId: newHostId,
+        originalHostId: originalHostIdRef.current,
+        fromFunction: reason,
+        timestamp: Date.now()
+      });
+    }
+  };
+
   // Helper function to determine correct player status based on game phase and player state
   const determineCorrectStatus = (
     phase: GamePhase, 
@@ -1089,25 +1117,9 @@ export default function Room() {
         });
         if (refOriginalHostPresent) {
           // If ref original host exists, they should ALWAYS be the host
-          if (hostId !== originalHostIdRef.current) {
+          if (hostId !== originalHostIdRef.current && originalHostIdRef.current) {
             console.log('DEBUG - CRITICAL - Ensuring ref original host is host:', originalHostIdRef.current);
-            setHostId(originalHostIdRef.current);
-            hostInitializedRef.current = true;
-            
-            // If I am the original host, broadcast this
-            if (playerId === originalHostIdRef.current) {
-              try {
-                emit(channel, 'host_update', { 
-                  hostId: originalHostIdRef.current,
-                  originalHostId: originalHostIdRef.current,
-                  forcedUpdate: true,
-                  fromPlayerId: playerId,
-                  fromFunction: 'presenceSync_originalHostRef'
-                });
-              } catch (err) {
-                console.error('DEBUG - Error sending host update:', err);
-              }
-            }
+            updateHostIfNeeded(originalHostIdRef.current, 'presenceSync_orig');
           }
         } else if (!hostId || !finalPlayers.some(p => p.id === hostId)) {
           // Original host ref not present AND current host not found in player list
@@ -1120,30 +1132,13 @@ export default function Room() {
           // This is the ONLY case where we should assign a new host
           const newHostId = finalPlayers[0].id;
           
-                      console.log('DEBUG - CRITICAL - Setting new host (original host absent):', {
-                newHostId: newHostId.slice(0, 8),
-              iAmFirstPlayer: playerId === finalPlayers[0].id
-            });
+          console.log('DEBUG - CRITICAL - Setting new host (original host absent):', {
+            newHostId: newHostId.slice(0, 8),
+            iAmFirstPlayer: playerId === finalPlayers[0].id
+          });
           
-          setHostId(newHostId);
-          hostInitializedRef.current = true;
-          
-          // If I became the host, broadcast this
-          if (playerId === newHostId) {
-            try {
-              emit(channel, 'host_update', { 
-                hostId: newHostId,
-                // Do NOT pass null here, keep the original host ID for history
-                originalHostId: originalHostIdRef.current,
-                fromPlayerId: playerId,
-                fromFunction: 'presenceSync_newHostWhenOriginalGone',
-                timestamp: Date.now()
-              });
-            } catch (err) {
-              console.error('DEBUG - Error sending host update:', err);
-            }
-          }
-          }
+          updateHostIfNeeded(newHostId, 'presenceSync_firstPlayer');
+        }
 
         
         // Update assigned player if we have assignments (keeping this unchanged)
@@ -1182,14 +1177,7 @@ export default function Room() {
             
             // If current player is the new host, broadcast it
             if (playerId === newHostId) {
-                          try {
-              emit(channel, 'host_update', { 
-                hostId: newHostId,
-                originalHostId 
-              });
-            } catch (err) {
-              console.error('DEBUG - Error sending host update after removal:', err);
-            }
+              updateHostIfNeeded(newHostId, 'remove_player_newHost');
             }
           }
           
@@ -2134,25 +2122,7 @@ export default function Room() {
             
             setTimeout(() => {
               if (channelRef.current) {
-                try {
-                  emit(channelRef.current, 'host_update', { 
-                    hostId: playerId,
-                    originalHostId: playerId,
-                    forcedUpdate: true,
-                    fromPlayerId: playerId,
-                    fromFunction: 'channelSubscribe_originalHost'
-                  });
-                  
-                  // Also persist in session storage
-                  try {
-                    sessionStorage.setItem(`host_${slug}`, playerId);
-                    sessionStorage.setItem(`originalHost_${slug}`, playerId);
-                  } catch (e) {
-                    console.error('Failed to store host in session storage', e);
-                  }
-                } catch (err) {
-                  console.error('DEBUG - Error sending reconnection host update:', err);
-                }
+                updateHostIfNeeded(playerId, 'channelSub_orig');
               }
             }, 1000);
           }
@@ -2364,13 +2334,7 @@ export default function Room() {
     if (channelRef.current) {
       try {
         // First ensure host status is synced
-        await emit(channelRef.current, 'host_update', { 
-          hostId: originalHostIdRef.current,
-          originalHostId: originalHostIdRef.current,
-          forcedUpdate: true,
-          fromFunction: 'handleStartGame',
-          timestamp: Date.now()
-        });
+        await updateHostIfNeeded(originalHostIdRef.current!, 'handleStartGame');
         
         console.log('DEBUG - CRITICAL - Sent host update before game start');
         
@@ -2633,44 +2597,7 @@ export default function Room() {
     // Only the original host can reassert themselves as host
     if (originalHostIdRef.current && originalHostIdRef.current === playerId && hostId !== playerId) {
       console.log('DEBUG - CRITICAL - Restoring original host status (forced)');
-      setHostId(playerId);
-      
-      // Force broadcast to sync all clients
-      if (channelRef.current) {
-        try {
-        emit(channelRef.current, 'host_update', { 
-          hostId: playerId,
-          originalHostId: playerId,
-          forcedUpdate: true,
-          fromPlayerId: playerId,
-          fromFunction: 'ensureOriginalHostPreserved_forced',
-          timestamp: Date.now()
-        });
-          
-          console.log('DEBUG - CRITICAL - Sent forced host update from ensureOriginalHostPreserved');
-          
-          // Also ensure the DB has the original host ID
-          try {
-            const { error: updateError } = await supa
-              .from('rooms')
-              .update({ 
-                current_host_id: playerId,
-                original_host_id: playerId
-              })
-              .eq('room_code', slug);
-              
-            if (updateError) {
-              console.error('DEBUG - CRITICAL - Error updating host in DB:', updateError);
-            } else {
-              console.log('DEBUG - CRITICAL - Updated host in DB to original host');
-            }
-          } catch (dbError) {
-            console.error('DEBUG - CRITICAL - Exception updating host in DB:', dbError);
-          }
-        } catch (err) {
-          console.error('DEBUG - CRITICAL - Error sending host restore:', err);
-        }
-      }
+      await updateHostIfNeeded(playerId, 'ensureOrigHost');
       
       // Also check if other players think they're the host and correct them
       const nonHostPlayers = players.filter(p => p.id !== playerId);
@@ -2963,18 +2890,7 @@ export default function Room() {
       // If this is the original host, force broadcast host update before continuing
       if (playerId === originalHostIdRef.current) {
         console.log('DEBUG - CRITICAL - Original host forcing host update during guess submission');
-        try {
-          await emit(channelRef.current, 'host_update', { 
-            hostId: originalHostIdRef.current,
-            originalHostId: originalHostIdRef.current,
-            forcedUpdate: true,
-            fromPlayerId: playerId,
-            fromFunction: 'handleSubmitGuesses_originalHost',
-            timestamp: Date.now()
-          });
-        } catch (err) {
-          console.error('DEBUG - CRITICAL - Error sending host update during guess submission:', err);
-        }
+        await updateHostIfNeeded(originalHostIdRef.current, 'submitGuesses_orig');
       }
       
       // Now broadcast guesses
