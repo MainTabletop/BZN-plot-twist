@@ -284,9 +284,34 @@ export default function Room() {
     }
   }, [slug]);
 
-  // Calculate if all players have submitted
-  const allPlayersSubmitted = players.length > 0 && 
-    players.every(player => player.status === 'ready' || player.id === hostId);
+  // Helper function to check if script generation is allowed
+  const canGenerateScript = () => {
+    const result = isHost && submittedPlayerIds && 
+      sortedPlayers.every(p => submittedPlayerIds.includes(p.id));
+    
+    console.log('DEBUG - Script generation check:', {
+      isHost,
+      submittedPlayerIds,
+      playerCount: players.length,
+      allSubmitted: sortedPlayers.every(p => submittedPlayerIds?.includes(p.id) ?? false),
+      canGenerate: result
+    });
+    
+    return result;
+  };
+
+  // Helper functions for voting screen
+  const canShowVotingResults = () => {
+    return isOriginalHost && sortedPlayers.every(p => guessSubmittedPlayerIds.includes(p.id));
+  };
+
+  const getVotingProgress = () => {
+    return {
+      submitted: guessSubmittedPlayerIds.length,
+      total: players.length,
+      allSubmitted: sortedPlayers.every(p => guessSubmittedPlayerIds.includes(p.id))
+    };
+  };
 
   // Calculate if current player is host with more explicit logging
   const isHost = playerId === hostId;
@@ -2455,7 +2480,7 @@ export default function Room() {
   };
 
   const handleGenerateScript = async () => {
-    if (!isHost || !allPlayersSubmitted) return;
+    if (!canGenerateScript()) return;
     
     console.log('DEBUG - CRITICAL - Generate script initiated by:', {
       playerId,
@@ -3926,29 +3951,38 @@ export default function Room() {
             <div className="bg-background-card rounded-xl shadow-lg p-6">
               <h3 className="text-xl font-semibold mb-4 text-text-primary">Host Controls</h3>
               
-              <button
-                onClick={handleGenerateScript}
-                disabled={!allPlayersSubmitted || isGeneratingScript}
-                className={`w-full py-3 px-4 rounded-lg ${
-                  !allPlayersSubmitted || isGeneratingScript
-                    ? 'bg-background-muted cursor-not-allowed text-text-muted'
-                    : 'bg-brand-primary hover:bg-brand-secondary cursor-pointer'
-                } text-background-primary font-semibold shadow-md transition-colors flex justify-center items-center`}
-              >
-                {isGeneratingScript ? (
-                  <>
-                    <svg className="w-5 h-5 mr-2 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                    </svg>
-                    Generating Script...
-                  </>
-                ) : (
-                  'Generate Script'
-                )}
-              </button>
+              {canGenerateScript() ? (
+                <button
+                  onClick={handleGenerateScript}
+                  disabled={isGeneratingScript}
+                  className={`w-full py-3 px-4 rounded-lg ${
+                    isGeneratingScript
+                      ? 'bg-background-muted cursor-not-allowed text-text-muted'
+                      : 'bg-brand-primary hover:bg-brand-secondary cursor-pointer'
+                  } text-background-primary font-semibold shadow-md transition-colors flex justify-center items-center`}
+                >
+                  {isGeneratingScript ? (
+                    <>
+                      <svg className="w-5 h-5 mr-2 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                      </svg>
+                      Generating Script...
+                    </>
+                  ) : (
+                    'Generate Script'
+                  )}
+                </button>
+              ) : (
+                <div className="w-full py-3 px-4 rounded-lg bg-background-muted text-text-muted text-center">
+                  <p className="font-semibold">Waiting for all players to submit...</p>
+                  <p className="text-sm mt-1">
+                    {submittedPlayerIds?.length || 0} of {players.length} players have submitted
+                  </p>
+                </div>
+              )}
               
               <p className="text-sm text-text-muted mt-2 text-center">
-                {allPlayersSubmitted 
+                {canGenerateScript()
                   ? 'All players are ready! You can generate the script now.'
                   : 'Wait for all players to submit their descriptions.'}
               </p>
@@ -4206,15 +4240,19 @@ export default function Room() {
               </div>
             ))}
           </div>
-                      {isOriginalHost && sortedPlayers.every(p => guessSubmittedPlayerIds.includes(p.id)) && (
-            <div className="mt-4 p-4 bg-green-50 border border-green-200 rounded-lg text-center">
-              <p className="text-green-700 font-medium">All players have submitted their votes!</p>
-              <button
-                onClick={handleShowResults}
-                className="mt-2 px-6 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg font-medium transition-colors"
-              >
-                Show Results
-              </button>
+                      {isOriginalHost && (
+            <div className="mt-4 p-4 bg-blue-50 border border-blue-200 rounded-lg text-center">
+              <p className="text-blue-700 font-medium">
+                {getVotingProgress().submitted} of {getVotingProgress().total} players have voted
+              </p>
+              {getVotingProgress().allSubmitted && (
+                <button
+                  onClick={handleShowResults}
+                  className="mt-2 px-6 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg font-medium transition-colors"
+                >
+                  Show Results
+                </button>
+              )}
             </div>
           )}
         </div>
