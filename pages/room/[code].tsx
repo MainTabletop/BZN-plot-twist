@@ -83,8 +83,7 @@ export default function Room() {
   const hostInitializedRef = useRef(false);
   // Add game phase ref to know when we're transitioning between phases
   const lastGamePhaseRef = useRef<GamePhase>('lobby');
-  // Add flag to prevent host reassignment during play again
-  const preservingHostRef = useRef(false);
+
 
   // Add ref for channel to use across functions
   const channelRef = useRef<any>(null);
@@ -512,7 +511,6 @@ export default function Room() {
       currentHostId: hostId,
       currentPhase: gamePhase,
       playerCount: players.length,
-      preservingHost: preservingHostRef.current,
       callStack: new Error().stack?.split('\n').slice(1, 3).join(' - ')
     });
     
@@ -585,9 +583,7 @@ export default function Room() {
       return;
     }
     
-    // Reset the preservation flag when reconnecting
-    preservingHostRef.current = false;
-    console.log('DEBUG - CRITICAL - Reset preservation flag after channel reconnection');
+
     
     // Check if channel exists and is ready
     if (!channelRef.current) {
@@ -1089,12 +1085,8 @@ export default function Room() {
           refOriginalHostPresent,
           originalHost: originalHostIdRef.current?.slice(0, 8),
           currentHost: hostId?.slice(0, 8),
-          preservingHost: preservingHostRef.current,
           gamePhase
         });
-        
-        // Skip host reassignment completely if preservation flag is set
-        if (!preservingHostRef.current) {
         if (refOriginalHostPresent) {
           // If ref original host exists, they should ALWAYS be the host
           if (hostId !== originalHostIdRef.current) {
@@ -1152,9 +1144,7 @@ export default function Room() {
             }
           }
           }
-        } else {
-          console.log('DEBUG - CRITICAL - Skipping host reassignment due to preservation flag in presence sync');
-        }
+
         
         // Update assigned player if we have assignments (keeping this unchanged)
         if (playerAssignments.length > 0) {
@@ -1440,12 +1430,11 @@ export default function Room() {
           playerId,
           currentPhase: gamePhase,
           newPhase: payload.phase,
-          isCurrentHost: playerId === hostId,
-          preservingFlag: preservingHostRef.current
+          isCurrentHost: playerId === hostId
         });
         
-        // If we're preserving the host (like when returning to lobby), set the flag
-        if (payload.preserveHost) {
+        // If we're preserving the host, update host ID if one was explicitly provided
+        if (payload.preserveHost && payload.preservedHostId) {
           console.log('DEBUG - CRITICAL - Explicitly preserving host during phase change:', { 
             hostId,
             originalHostId,
@@ -1455,20 +1444,8 @@ export default function Room() {
             preservedHostId: payload.preservedHostId
           });
           
-          // Set the flag to prevent host reassignment in presence handler
-          preservingHostRef.current = true;
-          
-          // Force update host ID if one was explicitly provided
-          if (payload.preservedHostId) {
-            console.log('DEBUG - CRITICAL - Forcing host to preserved ID:', payload.preservedHostId);
-            setHostId(payload.preservedHostId);
-          }
-          
-          // Schedule a reset of the flag after a delay to allow for presence updates
-          setTimeout(() => {
-            preservingHostRef.current = false;
-            console.log('DEBUG - CRITICAL - Host preservation period ended for phase transition to', payload.phase);
-          }, 5000); // 5 seconds should be enough
+          console.log('DEBUG - CRITICAL - Forcing host to preserved ID:', payload.preservedHostId);
+          setHostId(payload.preservedHostId);
         }
         
         // Ensure host is preserved across phase changes
@@ -1559,18 +1536,7 @@ export default function Room() {
               console.log('DEBUG - CRITICAL - Non-host player cleared game state for Play Again');
             }
             
-            // Set a longer preservation time for Play Again transitions
-            setTimeout(() => {
-              preservingHostRef.current = false;
-              console.log('DEBUG - CRITICAL - Extended host preservation period ended for Play Again');
-              
-              // Double-check host status
-              if (playerId === originalHostIdRef.current) {
-                ensureOriginalHostPreserved().catch(err => 
-                  console.error('DEBUG - CRITICAL - Error in timeout host preservation check:', err)
-                );
-              }
-            }, 7000); // Extended time for Play Again
+
           }
         }
         
@@ -2191,18 +2157,7 @@ export default function Room() {
             }, 1000);
           }
           
-          // Reset preservation flag after successful connection
-          setTimeout(() => {
-            preservingHostRef.current = false;
-            console.log('DEBUG - Reset preservation flag after channel reconnection');
-            
-            // Check host status
-            if (originalHostId && originalHostId === playerId) {
-              ensureOriginalHostPreserved().catch(err => 
-                console.error('DEBUG - CRITICAL - Error in channel reconnection host preservation check:', err)
-              );
-            }
-          }, 5000);
+
         } 
         else if (status === 'CHANNEL_ERROR') {
           console.log('DEBUG - Channel error, attempting reconnection...');
@@ -2406,10 +2361,6 @@ export default function Room() {
     
     console.log('DEBUG - CRITICAL - Created assignments:', assignments);
     
-    // Set preservation flag during game start
-    preservingHostRef.current = true;
-    console.log('DEBUG - CRITICAL - Set preservationFlag before game start');
-    
     if (channelRef.current) {
       try {
         // First ensure host status is synced
@@ -2444,15 +2395,8 @@ export default function Room() {
         dbg('ui-trigger', { event: 'broadcastAndSyncPlayerStatus', requestedStatus: 'writing', gamePhase });
         await broadcastAndSyncPlayerStatus('writing');
         
-        // Reset after setup is complete
-        setTimeout(() => {
-          preservingHostRef.current = false;
-          console.log('DEBUG - CRITICAL - Reset preservationFlag after game start');
-        }, 3000);
-        
       } catch (error) {
         console.error('DEBUG - CRITICAL - Error starting game:', error);
-        preservingHostRef.current = false;
       }
     }
   };
@@ -2922,10 +2866,6 @@ export default function Room() {
     
     // Move to guessing phase
     if ((playerId === originalHostIdRef.current) && channelRef.current) {
-      // Set preservation flag before making changes
-      preservingHostRef.current = true;
-      console.log('DEBUG - CRITICAL - Set preservationFlag before finishing reading');
-      
       // Send a preliminary host update
       try {
         channelRef.current.send({
@@ -2964,12 +2904,6 @@ export default function Room() {
       } catch (error) {
         console.error('ERROR - Failed to update phase:', error);
       }
-      
-      // Reset preservation flag after a delay
-      setTimeout(() => {
-        preservingHostRef.current = false;
-        console.log('DEBUG - CRITICAL - Reset preservationFlag after finishing reading');
-      }, 10000); // Use 10 second timer
     }
   };
 
@@ -3017,10 +2951,6 @@ export default function Room() {
     }
     
     try {
-      // Set preservation flag during the status change
-      preservingHostRef.current = true;
-      console.log('DEBUG - CRITICAL - Setting preservation flag during guess submission');
-      
       // First update local state
       setSubmittedGuesses(true);
       
@@ -3059,17 +2989,8 @@ export default function Room() {
         timestamp: Date.now()
       });
       
-      // Non-original host players can reset their preservation flag after a short delay
-      if (playerId !== originalHostIdRef.current) {
-        setTimeout(() => {
-          preservingHostRef.current = false;
-          console.log('DEBUG - CRITICAL - Reset preservation flag after guess submission (non-original host)');
-        }, 2000);
-      }
-      
     } catch (error) {
       console.error('DEBUG - CRITICAL - Error submitting guesses:', error);
-      preservingHostRef.current = false; // Make sure to reset on error
     }
   };
 
@@ -3198,9 +3119,7 @@ export default function Room() {
       console.log('DEBUG - CRITICAL - Host confirmed to show results despite players not ready');
     }
     
-    // Set preservation flag before showing results
-    preservingHostRef.current = true;
-    console.log('DEBUG - CRITICAL - Set preservationFlag before showing results');
+
     
     // Initialize player scores
     const scores: Record<string, number> = {};
@@ -3348,15 +3267,8 @@ export default function Room() {
         setGamePhase('results');
       } catch (error) {
         console.error('DEBUG - CRITICAL - Error showing results:', error);
-        preservingHostRef.current = false; // Reset on error
       }
     }
-    
-    // Reset preservation flag after a delay
-    setTimeout(() => {
-      preservingHostRef.current = false;
-      console.log('DEBUG - CRITICAL - Reset preservationFlag after showing results');
-    }, 10000); // Use 10 second timer
   };
 
   // Add validation to the player vote submission
@@ -3385,9 +3297,7 @@ export default function Room() {
       return;
     }
     
-    // Set the preservation flag to prevent host changes during operation
-      console.log('DEBUG - CRITICAL - Setting preservation flag during vote submission');
-    preservingHostRef.current = true;
+
     
     // Mark as submitted locally first for immediate UI feedback
     setHasVoted(true);
@@ -3429,8 +3339,7 @@ export default function Room() {
       prevSubmittedGuessesRef.current = false;
       setGuessSubmittedPlayerIds(prev => prev.filter(id => id !== playerId));
     } finally {
-      console.log('DEBUG - CRITICAL - Reset preservation flag after vote submission');
-                preservingHostRef.current = false;
+      console.log('DEBUG - CRITICAL - Vote submission completed');
     }
   };
 
