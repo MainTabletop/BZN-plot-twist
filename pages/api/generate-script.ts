@@ -105,7 +105,7 @@ ${charactersList}
     const response = await openai.chat.completions.create({
       model: "gpt-5-mini",
       temperature: 0.9,
-      max_tokens: maxTokens,
+      max_completion_tokens: maxTokens,
       messages: [
         { role: "system", content: system },
         { role: "user", content: user }
