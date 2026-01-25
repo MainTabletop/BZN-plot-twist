@@ -1,5 +1,6 @@
 import { NextApiRequest, NextApiResponse } from 'next';
 import { OpenAI } from 'openai';
+import type { ResponseOutputText } from 'openai/resources/responses/responses';
 import { sanitizePrompt } from '../../lib/prompt';
 
 type PlayerDescription = { 
@@ -27,6 +28,29 @@ function cleanScript(script: string): string {
     .replace(/\n{3,}/g, '\n\n')
     // Trim any whitespace at start and end
     .trim();
+}
+
+function extractResponseText(response: { output_text?: string; output?: Array<{ type: string; content?: unknown[] }> }): string {
+  const outputText = response.output_text?.trim();
+  if (outputText) {
+    return outputText;
+  }
+
+  return (
+    response.output?.reduce((text, item) => {
+      if (item.type !== 'message') {
+        return text;
+      }
+
+      const content = (item.content ?? []) as ResponseOutputText[];
+      const messageText = content
+        .filter((contentItem): contentItem is ResponseOutputText => contentItem.type === 'output_text')
+        .map(contentItem => contentItem.text)
+        .join('');
+
+      return text + messageText;
+    }, '') || ''
+  );
 }
 
 export default async function handler(
@@ -106,16 +130,30 @@ ${charactersList}
     const response = await openai.responses.create({
       model: "gpt-5-mini",
       max_output_tokens: maxCompletionTokens,
-      input: [
-        { role: "system", content: system },
-        { role: "user", content: user },
-      ],
+      instructions: system,
+      input: user,
     });
 
-    const rawScript = response.output_text || "";
+    let rawScript = extractResponseText(response);
+
+    let fallbackResponse: Awaited<ReturnType<typeof openai.responses.create>> | null = null;
 
     if (!rawScript.trim()) {
-      console.error('OpenAI returned empty script content:', response);
+      console.warn('OpenAI returned empty script content from gpt-5-mini, retrying with gpt-4o-mini.');
+      fallbackResponse = await openai.responses.create({
+        model: "gpt-4o-mini",
+        max_output_tokens: maxCompletionTokens,
+        instructions: system,
+        input: user,
+      });
+      rawScript = extractResponseText(fallbackResponse);
+    }
+
+    if (!rawScript.trim()) {
+      console.error('OpenAI returned empty script content:', {
+        primaryResponse: response,
+        fallbackResponse,
+      });
       return res.status(502).json({ error: 'Script generation returned empty content' });
     }
     const cleanedScript = cleanScript(rawScript);
