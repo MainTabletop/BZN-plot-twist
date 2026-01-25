@@ -112,13 +112,7 @@ ${charactersList}
       ],
     });
 
-    const rawScript =
-      response.output_text ||
-      response.output
-        ?.flatMap(output => output.content ?? [])
-        .map(content => ("text" in content ? content.text : ""))
-        .join("") ||
-      "";
+    const rawScript = response.output_text || "";
 
     if (!rawScript.trim()) {
       console.error('OpenAI returned empty script content:', response);
