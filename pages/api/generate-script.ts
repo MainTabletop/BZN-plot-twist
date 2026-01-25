@@ -72,15 +72,16 @@ export default async function handler(
       return `• ${character} – ${sanitizePrompt(desc.description)}`;
     }).join('\n');
 
-    // Map length setting to token limits
-    const tokenMap = { 
-      short: 900, 
-      medium: 2200, 
-      long: 3600 
+    // Map length setting to completion token limits
+    const tokenMap = {
+      short: 900,
+      medium: 2200,
+      long: 3600,
     };
     
     // Get max tokens based on length setting (default to medium if invalid)
-    const maxTokens = tokenMap[settings.length.toLowerCase() as keyof typeof tokenMap] || tokenMap.medium;
+    const maxCompletionTokens =
+      tokenMap[settings.length.toLowerCase() as keyof typeof tokenMap] || tokenMap.medium;
 
     // Create structured prompt
     const system = `You are an award‑winning screenwriter. Write a tight, highly readable screenplay that works as a live table‑read for 4–10 friends. Can be Rated R. Use every character provided in depth. Make sure to use their descriptions as much as you can, while making it seem natrually the way you bring in the details from the descriptions.`;
@@ -102,17 +103,33 @@ ${charactersList}
 3. Use standard screenplay format (CHARACTER, dialogue, brief stage directions).
 `;
 
-    const response = await openai.chat.completions.create({
-      model: "gpt-4o-mini",
-      temperature: 0.9,
-      max_tokens: maxTokens,
-      messages: [
-        { role: "system", content: system },
-        { role: "user", content: user }
-      ]
+    const response = await openai.responses.create({
+      model: "gpt-5-mini",
+      max_output_tokens: maxCompletionTokens,
+      input: [
+        {
+          role: "system",
+          content: [{ type: "text", text: system }],
+        },
+        {
+          role: "user",
+          content: [{ type: "text", text: user }],
+        },
+      ],
     });
 
-    const rawScript = response.choices[0].message.content || '';
+    const rawScript =
+      response.output_text ||
+      response.output
+        ?.flatMap(item => item.content ?? [])
+        .map(part => (part.type === 'output_text' ? part.text : ''))
+        .join('') ||
+      '';
+
+    if (!rawScript.trim()) {
+      console.error('OpenAI returned empty script content:', response);
+      return res.status(502).json({ error: 'Script generation returned empty content' });
+    }
     const cleanedScript = cleanScript(rawScript);
     
     // Generate consistent title based on game settings
