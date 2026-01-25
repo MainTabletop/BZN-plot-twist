@@ -112,17 +112,7 @@ ${charactersList}
       ],
     });
 
-    const messageContent = response.choices[0]?.message?.content;
-    const rawScript = Array.isArray(messageContent)
-      ? messageContent
-          .map(part => (typeof part === 'string' ? part : part?.text ?? ''))
-          .join('')
-      : messageContent || '';
-
-    if (!rawScript.trim()) {
-      console.error('OpenAI returned empty script content:', response.choices[0]?.message);
-      return res.status(502).json({ error: 'Script generation returned empty content' });
-    }
+    const rawScript = response.choices[0].message.content || '';
     const cleanedScript = cleanScript(rawScript);
     
     // Generate consistent title based on game settings
