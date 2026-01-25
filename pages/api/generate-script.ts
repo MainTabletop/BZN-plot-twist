@@ -103,24 +103,25 @@ ${charactersList}
 3. Use standard screenplay format (CHARACTER, dialogue, brief stage directions).
 `;
 
-    const response = await openai.chat.completions.create({
+    const response = await openai.responses.create({
       model: "gpt-5-mini",
-      max_completion_tokens: maxCompletionTokens,
-      messages: [
+      max_output_tokens: maxCompletionTokens,
+      input: [
         { role: "system", content: system },
         { role: "user", content: user },
       ],
     });
 
-    const messageContent = response.choices[0]?.message?.content;
-    const rawScript = Array.isArray(messageContent)
-      ? messageContent
-          .map(part => (typeof part === 'string' ? part : part?.text ?? ''))
-          .join('')
-      : messageContent || '';
+    const rawScript =
+      response.output_text ||
+      response.output
+        ?.flatMap(output => output.content ?? [])
+        .map(content => ("text" in content ? content.text : ""))
+        .join("") ||
+      "";
 
     if (!rawScript.trim()) {
-      console.error('OpenAI returned empty script content:', response.choices[0]?.message);
+      console.error('OpenAI returned empty script content:', response);
       return res.status(502).json({ error: 'Script generation returned empty content' });
     }
     const cleanedScript = cleanScript(rawScript);
